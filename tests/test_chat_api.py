@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+from collections.abc import Generator
+from datetime import date, time
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.core.dependencies import get_academic_session
+from app.main import app
+from app.models import (
+    AcademicYear,
+    Base,
+    LessonSchedule,
+    SchoolClass,
+    Subject,
+    Teacher,
+)
+
+
+@pytest.fixture
+def client() -> Generator[TestClient, None, None]:
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        academic_year = AcademicYear(
+            name="2025/2026",
+            start_date=date(2025, 7, 1),
+            end_date=date(2026, 6, 30),
+            is_active=True,
+        )
+        session.add(academic_year)
+        session.flush()
+
+        school_class = SchoolClass(
+            academic_year_id=academic_year.id,
+            class_name="7A",
+            grade=7,
+            group_letter="A",
+            is_active=True,
+        )
+        session.add(school_class)
+
+        subject = Subject(
+            name="Matematika",
+            normalized_name="matematika",
+            subject_type="lesson",
+            is_active=True,
+        )
+        session.add(subject)
+
+        teacher = Teacher(
+            name="Guru Matematika",
+            normalized_name="guru matematika",
+            is_active=True,
+        )
+        session.add(teacher)
+        session.flush()
+
+        session.add(
+            LessonSchedule(
+                school_class_id=school_class.id,
+                subject_id=subject.id,
+                teacher_id=teacher.id,
+                day="senin",
+                start_time=time(7, 0),
+                end_time=time(8, 0),
+                is_active=True,
+                source_key="test:chat:schedule:1",
+            )
+        )
+
+        session.commit()
+
+    def override_session() -> Generator[
+        Session,
+        None,
+        None,
+    ]:
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[
+        get_academic_session
+    ] = override_session
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def post_message(
+    client: TestClient,
+    message: str,
+):
+    return client.post(
+        "/api/v1/chat/messages",
+        json={"message": message},
+    )
+
+
+def test_answers_schedule_request(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal kelas 7A hari Senin",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["intent"] == "jadwal_pelajaran"
+    assert payload["intent_source"] == "rule"
+    assert payload["status"] == "answered"
+
+    assert payload["entities"] == {
+        "class_name": "7A",
+        "day": "senin",
+    }
+
+    assert payload["missing_entities"] == []
+    assert payload["data"]["academic_year"] == "2025/2026"
+    assert len(payload["data"]["items"]) == 1
+
+    item = payload["data"]["items"][0]
+
+    assert item["subject_name"] == "Matematika"
+    assert item["teacher_name"] == "Guru Matematika"
+
+
+def test_requests_missing_class(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal hari Senin",
+    )
+
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "needs_clarification"
+    assert payload["missing_entities"] == ["class_name"]
+    assert payload["entities"]["day"] == "senin"
+    assert payload["data"] is None
+
+
+def test_requests_missing_day(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal kelas 7A",
+    )
+
+    payload = response.json()
+
+    assert payload["status"] == "needs_clarification"
+    assert payload["missing_entities"] == ["day"]
+    assert payload["entities"]["class_name"] == "7A"
+
+
+def test_requests_missing_class_group(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal kelas 8 hari Senin",
+    )
+
+    payload = response.json()
+
+    assert payload["status"] == "needs_clarification"
+    assert payload["missing_entities"] == ["class_group"]
+    assert payload["entities"]["class_name"] == "8"
+
+
+def test_rejects_invalid_class_format(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal kelas 8Z hari Senin",
+    )
+
+    payload = response.json()
+
+    assert payload["status"] == "invalid_request"
+    assert payload["entities"]["class_name"] == "8Z"
+    assert payload["data"] is None
+
+
+def test_returns_not_found_for_inactive_class(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal kelas 8A hari Senin",
+    )
+
+    payload = response.json()
+
+    assert payload["status"] == "not_found"
+    assert payload["intent"] == "jadwal_pelajaran"
+    assert payload["data"] is None
+
+
+def test_returns_unsupported_for_other_intent(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Siapa kepala sekolah?",
+    )
+
+    payload = response.json()
+
+    assert payload["status"] == "unsupported"
+    assert payload["intent"] is None
+    assert payload["intent_source"] is None
+
+
+def test_rejects_whitespace_message(
+    client: TestClient,
+) -> None:
+    response = post_message(client, "   ")
+
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "invalid_request"
+    assert payload["message"] == "Pesan tidak boleh kosong."

@@ -28,7 +28,6 @@ DAY_ALIASES = {
     "kamis": "kamis",
     "kmis": "kamis",
     "jumat": "jumat",
-    "jumat": "jumat",
     "jmat": "jumat",
     "sabtu": "sabtu",
     "saptu": "sabtu",

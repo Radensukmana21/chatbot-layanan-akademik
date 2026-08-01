@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.health import router as health_router
 from app.api.routes.schedules import router as schedules_router
+from app.api.routes.chat import router as chat_router
 from app.core.config import get_settings
 
 
@@ -18,6 +19,8 @@ app = FastAPI(
     ),
 )
 
+app.include_router(schedules_router)
+app.include_router(chat_router)
 app.include_router(schedules_router)
 
 app.add_middleware(
