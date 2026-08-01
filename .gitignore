@@ -23,7 +23,7 @@ dataset/raw/*
 !dataset/raw/.gitkeep
 dataset/reviewed/*
 !dataset/reviewed/.gitkeep
-dataset/splits/train/*
+dataset/splits/train/*	
 !dataset/splits/train/.gitkeep
 dataset/splits/validation/*
 !dataset/splits/validation/.gitkeep
@@ -41,6 +41,5 @@ Thumbs.db
 logs/
 *.log
 
-# Data struktur akademik lokal
-database/seeds/academic_years.csv
-database/seeds/school_classes.csv
+# Legacy database dumps
+database/legacy/*.sql
