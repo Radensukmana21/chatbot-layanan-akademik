@@ -13,14 +13,17 @@ from app.repositories.school_class_repository import (
     SchoolClassRepository,
 )
 from app.schemas.chat import (
+    ChatContextPayload,
     ChatEntitiesResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ChatScheduleDataResponse,
 )
 from app.schemas.schedule import ScheduleItemResponse
-from app.services.chat_service import handle_chat_message
-
+from app.services.chat_service import (
+    ChatContext,
+    handle_chat_message,
+)
 
 router = APIRouter(
     prefix="/api/v1/chat",
@@ -39,10 +42,21 @@ def create_chat_message(
         Depends(get_academic_session),
     ],
 ) -> ChatMessageResponse:
+    request_context = ChatContext()
+
+    if payload.context is not None:
+        request_context = ChatContext(
+            intent=payload.context.intent,
+            class_name=payload.context.class_name,
+            day=payload.context.day,
+            is_active=payload.context.is_active,
+        )
+
     result = handle_chat_message(
         message=payload.message,
         class_repository=SchoolClassRepository(session),
         schedule_repository=LessonScheduleRepository(session),
+        context=request_context,
     )
 
     data: ChatScheduleDataResponse | None = None
@@ -70,4 +84,10 @@ def create_chat_message(
         missing_entities=list(result.missing_entities),
         message=result.message,
         data=data,
+        context=ChatContextPayload(
+            intent=result.context.intent,
+            class_name=result.context.class_name,
+            day=result.context.day,
+            is_active=result.context.is_active,
+        ),
     )

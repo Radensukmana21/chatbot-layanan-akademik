@@ -31,25 +31,37 @@ ChatStatus = Literal[
 
 
 @dataclass(frozen=True, slots=True)
+class ChatContext:
+    intent: ChatIntent | None = None
+    class_name: str | None = None
+    day: str | None = None
+    is_active: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ChatResult:
     intent: ChatIntent | None
     intent_source: Literal["rule"] | None
     status: ChatStatus
+
     class_name: str | None
     day: str | None
+
     missing_entities: tuple[str, ...]
     academic_year: str | None
     items: tuple[LessonScheduleRecord, ...]
+
     message: str
+    context: ChatContext
 
 
 def detect_rule_intent(
     message: str | None,
 ) -> ChatIntent | None:
     """
-    Rule transparan untuk use case jadwal pelajaran.
+    Mendeteksi intent jadwal menggunakan rule transparan.
 
-    Model machine learning belum digunakan pada tahap ini.
+    Machine learning belum digunakan pada tahap ini.
     """
 
     normalized = normalize_text(message)
@@ -69,6 +81,89 @@ def detect_rule_intent(
         return "jadwal_pelajaran"
 
     return None
+
+
+def extract_group_reply(
+    message: str | None,
+) -> str | None:
+    """
+    Mengambil jawaban rombel pendek.
+
+    Contoh yang diterima:
+    - A
+    - rombel A
+    - grup B
+    - kelas C
+    """
+
+    normalized = normalize_text(message)
+
+    match = re.fullmatch(
+        r"(?:rombel|grup|kelas)?\s*([a-k])",
+        normalized,
+    )
+
+    if match is None:
+        return None
+
+    return match.group(1).upper()
+
+
+def merge_schedule_context(
+    *,
+    message: str,
+    previous_context: ChatContext,
+    today: date | None = None,
+) -> ChatContext:
+    """
+    Menggabungkan entitas dari pesan baru dengan percakapan aktif.
+
+    Entitas pada pesan baru mempunyai prioritas lebih tinggi.
+    """
+
+    extracted = extract_schedule_entities(
+        message,
+        today=today,
+    )
+
+    use_previous_context = (
+        previous_context.is_active
+        and previous_context.intent == "jadwal_pelajaran"
+    )
+
+    previous_class = (
+        previous_context.class_name
+        if use_previous_context
+        else None
+    )
+
+    previous_day = (
+        previous_context.day
+        if use_previous_context
+        else None
+    )
+
+    class_name = extracted.class_name or previous_class
+    day = extracted.day or previous_day
+
+    # Jika sebelumnya pengguna hanya menyebut "kelas 7",
+    # jawaban pendek "A" diubah menjadi "7A".
+    if (
+        extracted.class_name is None
+        and previous_class is not None
+        and re.fullmatch(r"[789]", previous_class)
+    ):
+        group = extract_group_reply(message)
+
+        if group is not None:
+            class_name = f"{previous_class}{group}"
+
+    return ChatContext(
+        intent="jadwal_pelajaran",
+        class_name=class_name,
+        day=day,
+        is_active=True,
+    )
 
 
 def build_clarification_message(
@@ -104,26 +199,44 @@ def handle_chat_message(
     message: str,
     class_repository: SchoolClassRepository,
     schedule_repository: LessonScheduleRepository,
+    context: ChatContext | None = None,
     today: date | None = None,
 ) -> ChatResult:
+    previous_context = context or ChatContext()
     normalized_message = normalize_text(message)
 
     if not normalized_message:
         return ChatResult(
-            intent=None,
-            intent_source=None,
+            intent=previous_context.intent,
+            intent_source=(
+                "rule"
+                if previous_context.intent is not None
+                else None
+            ),
             status="invalid_request",
-            class_name=None,
-            day=None,
+            class_name=previous_context.class_name,
+            day=previous_context.day,
             missing_entities=(),
             academic_year=None,
             items=(),
             message="Pesan tidak boleh kosong.",
+            context=previous_context,
         )
 
-    intent = detect_rule_intent(message)
+    detected_intent = detect_rule_intent(message)
 
-    if intent is None:
+    if detected_intent is not None:
+        intent = detected_intent
+    elif (
+        previous_context.is_active
+        and previous_context.intent is not None
+    ):
+        # Pesan seperti "7A", "Senin", atau "A" diproses
+        # sebagai lanjutan conversation engine.
+        intent = previous_context.intent
+    else:
+        empty_context = ChatContext()
+
         return ChatResult(
             intent=None,
             intent_source=None,
@@ -137,31 +250,41 @@ def handle_chat_message(
                 "Maaf, saat ini saya baru dapat membantu "
                 "mengecek jadwal pelajaran."
             ),
+            context=empty_context,
         )
 
-    entities = extract_schedule_entities(
-        message,
+    merged_context = merge_schedule_context(
+        message=message,
+        previous_context=previous_context,
         today=today,
     )
 
+    class_name = merged_context.class_name
+    day = merged_context.day
+
     missing_entities: list[str] = []
 
-    if entities.class_name is None:
+    if class_name is None:
         missing_entities.append("class_name")
     else:
-        class_validation = validate_class_format(
-            entities.class_name
-        )
+        class_validation = validate_class_format(class_name)
 
         if class_validation.error_code == "missing_group":
             missing_entities.append("class_group")
         elif not class_validation.is_valid:
+            closed_context = ChatContext(
+                intent=intent,
+                class_name=class_validation.class_name,
+                day=day,
+                is_active=False,
+            )
+
             return ChatResult(
                 intent=intent,
                 intent_source="rule",
                 status="invalid_request",
                 class_name=class_validation.class_name,
-                day=entities.day,
+                day=day,
                 missing_entities=(),
                 academic_year=None,
                 items=(),
@@ -169,37 +292,53 @@ def handle_chat_message(
                     class_validation.message
                     or "Format kelas tidak valid."
                 ),
+                context=closed_context,
             )
 
-    if entities.day is None:
+    if day is None:
         missing_entities.append("day")
 
     if missing_entities:
         missing_tuple = tuple(missing_entities)
 
+        active_context = ChatContext(
+            intent=intent,
+            class_name=class_name,
+            day=day,
+            is_active=True,
+        )
+
         return ChatResult(
             intent=intent,
             intent_source="rule",
             status="needs_clarification",
-            class_name=entities.class_name,
-            day=entities.day,
+            class_name=class_name,
+            day=day,
             missing_entities=missing_tuple,
             academic_year=None,
             items=(),
             message=build_clarification_message(
-                class_name=entities.class_name,
+                class_name=class_name,
                 missing_entities=missing_tuple,
             ),
+            context=active_context,
         )
 
-    assert entities.class_name is not None
-    assert entities.day is not None
+    assert class_name is not None
+    assert day is not None
 
     lookup = lookup_class_schedule(
-        class_name=entities.class_name,
-        day=entities.day,
+        class_name=class_name,
+        day=day,
         class_repository=class_repository,
         schedule_repository=schedule_repository,
+    )
+
+    closed_context = ChatContext(
+        intent=intent,
+        class_name=lookup.class_name,
+        day=lookup.day,
+        is_active=False,
     )
 
     if lookup.status == "class_not_registered":
@@ -213,6 +352,7 @@ def handle_chat_message(
             academic_year=lookup.academic_year,
             items=(),
             message=lookup.message,
+            context=closed_context,
         )
 
     if lookup.status in {
@@ -232,6 +372,7 @@ def handle_chat_message(
                 "Data jadwal sedang tidak tersedia. "
                 "Silakan hubungi administrator sekolah."
             ),
+            context=closed_context,
         )
 
     if lookup.status != "ok":
@@ -245,6 +386,7 @@ def handle_chat_message(
             academic_year=lookup.academic_year,
             items=(),
             message=lookup.message,
+            context=closed_context,
         )
 
     if lookup.items:
@@ -265,4 +407,5 @@ def handle_chat_message(
         academic_year=lookup.academic_year,
         items=lookup.items,
         message=response_message,
+        context=closed_context,
     )

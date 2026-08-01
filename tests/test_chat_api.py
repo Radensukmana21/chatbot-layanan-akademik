@@ -104,10 +104,18 @@ def client() -> Generator[TestClient, None, None]:
 def post_message(
     client: TestClient,
     message: str,
+    context: dict[str, object] | None = None,
 ):
+    payload: dict[str, object] = {
+        "message": message,
+    }
+
+    if context is not None:
+        payload["context"] = context
+
     return client.post(
         "/api/v1/chat/messages",
-        json={"message": message},
+        json=payload,
     )
 
 
@@ -244,3 +252,111 @@ def test_rejects_whitespace_message(
     assert response.status_code == 200
     assert payload["status"] == "invalid_request"
     assert payload["message"] == "Pesan tidak boleh kosong."
+
+def test_continues_with_class_reply(
+    client: TestClient,
+) -> None:
+    first_response = post_message(
+        client,
+        "Jadwal hari Senin",
+    )
+
+    first_payload = first_response.json()
+
+    assert first_payload["status"] == "needs_clarification"
+    assert first_payload["context"] == {
+        "intent": "jadwal_pelajaran",
+        "class_name": None,
+        "day": "senin",
+        "is_active": True,
+    }
+
+    second_response = post_message(
+        client,
+        "7A",
+        context=first_payload["context"],
+    )
+
+    second_payload = second_response.json()
+
+    assert second_payload["status"] == "answered"
+    assert second_payload["entities"] == {
+        "class_name": "7A",
+        "day": "senin",
+    }
+    assert second_payload["context"]["is_active"] is False
+    assert len(second_payload["data"]["items"]) == 1
+
+def test_continues_with_day_reply(
+    client: TestClient,
+) -> None:
+    first_response = post_message(
+        client,
+        "Jadwal kelas 7A",
+    )
+
+    first_payload = first_response.json()
+
+    assert first_payload["status"] == "needs_clarification"
+    assert first_payload["missing_entities"] == ["day"]
+
+    second_response = post_message(
+        client,
+        "Senin",
+        context=first_payload["context"],
+    )
+
+    second_payload = second_response.json()
+
+    assert second_payload["status"] == "answered"
+    assert second_payload["entities"]["class_name"] == "7A"
+    assert second_payload["entities"]["day"] == "senin"
+
+def test_continues_with_group_only_reply(
+    client: TestClient,
+) -> None:
+    first_response = post_message(
+        client,
+        "Jadwal kelas 7 hari Senin",
+    )
+
+    first_payload = first_response.json()
+
+    assert first_payload["status"] == "needs_clarification"
+    assert first_payload["missing_entities"] == ["class_group"]
+    assert first_payload["context"]["class_name"] == "7"
+
+    second_response = post_message(
+        client,
+        "A",
+        context=first_payload["context"],
+    )
+
+    second_payload = second_response.json()
+
+    assert second_payload["status"] == "answered"
+    assert second_payload["entities"]["class_name"] == "7A"
+
+def test_does_not_reuse_completed_context(
+    client: TestClient,
+) -> None:
+    answered_response = post_message(
+        client,
+        "Jadwal kelas 7A hari Senin",
+    )
+
+    answered_payload = answered_response.json()
+
+    assert answered_payload["status"] == "answered"
+    assert answered_payload["context"]["is_active"] is False
+
+    follow_up_response = post_message(
+        client,
+        "Terima kasih",
+        context=answered_payload["context"],
+    )
+
+    follow_up_payload = follow_up_response.json()
+
+    assert follow_up_payload["status"] == "unsupported"
+    assert follow_up_payload["intent"] is None
