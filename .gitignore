@@ -40,3 +40,7 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Data struktur akademik lokal
+database/seeds/academic_years.csv
+database/seeds/school_classes.csv
