@@ -29,6 +29,7 @@ dataset/splits/validation/*
 !dataset/splits/validation/.gitkeep
 dataset/splits/test/*
 !dataset/splits/test/.gitkeep
+!dataset/splits/test/*_gold.csv
 
 # IDE / OS
 .vscode/
