@@ -500,3 +500,16 @@ Intent dianggap berfungsi apabila:
 
 9\. Seluruh test untuk intent ini lulus.
 
+## Validasi kelas
+
+Validasi dilakukan dalam dua tahap:
+
+1. Validasi format
+   - Tingkat hanya 7, 8, dan 9.
+   - Huruf rombel berada pada A sampai K.
+
+2. Validasi kelas aktif
+   - Kelas yang valid secara format belum tentu aktif.
+   - Daftar kelas aktif mengikuti database dan tahun ajaran.
+   - Chatbot tidak boleh mengasumsikan semua tingkat selalu memiliki
+     rombel sampai K.
