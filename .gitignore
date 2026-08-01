@@ -1,0 +1,41 @@
+# Environment
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Model artifacts
+artifacts/models/*
+!artifacts/models/.gitkeep
+*.pkl
+*.joblib
+
+# Dataset hasil proses / data sensitif
+dataset/raw/*
+!dataset/raw/.gitkeep
+dataset/reviewed/*
+!dataset/reviewed/.gitkeep
+dataset/splits/train/*
+!dataset/splits/train/.gitkeep
+dataset/splits/validation/*
+!dataset/splits/validation/.gitkeep
+dataset/splits/test/*
+!dataset/splits/test/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

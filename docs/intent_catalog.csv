@@ -1,0 +1,15 @@
+﻿intent_id,category,status,decision_mode,purpose,required_entities,optional_entities,clarification,data_source,planned_handler,notes
+salam,Percakapan,aktif,rule,Menyambut sapaan pengguna,,,,Respons statis,greeting_handler,Tidak memerlukan model
+bantuan,Percakapan,aktif,rule,Menampilkan kemampuan chatbot,,,,Katalog fitur,help_handler,Tidak memerlukan model
+terima_kasih,Percakapan,aktif,rule,Menanggapi ucapan terima kasih,,,,Respons statis,thanks_handler,Tidak memerlukan model
+batalkan_proses,Percakapan,aktif,state_rule,Membatalkan flow aktif,,,,Conversation state,cancel_handler,Prioritas tinggi saat flow aktif
+jadwal_pelajaran,Informasi,utama,ml_rule_db,Mencari jadwal pelajaran,kelas,"hari,mata_pelajaran,jam",Minta kelas atau hari yang belum ada,Database akademik,lesson_schedule_handler,Bedakan dari jadwal ujian
+informasi_guru,Informasi,utama,ml_rule_db,"Mencari guru, wali kelas, atau pengampu",,"nama_guru,kelas,mata_pelajaran",Tanyakan guru/kelas/mapel yang dimaksud,Database akademik,teacher_handler,
+informasi_ekstrakurikuler,Informasi,utama,ml_rule_db,Mencari daftar atau detail ekstrakurikuler,,"nama_ekskul,hari",Tanyakan nama ekstrakurikuler jika diperlukan,Database akademik,extracurricular_handler,
+ajukan_surat_izin,Administrasi,utama,ml_state_transaction,Memulai pengajuan surat izin,,"nama,kelas,jenis_izin,keterangan,kontak",Kumpulkan slot satu per satu,Database akademik,submit_letter_flow,Tidak boleh otomatis approve
+cek_status_surat,Administrasi,utama,ml_state_db,Mengecek status pengajuan,"nomor_pengajuan,kode_verifikasi",,Minta nomor dan kode verifikasi,Database akademik,letter_status_flow,Jangan gunakan nomor telepon saja
+di_luar_cakupan,Keamanan,aktif,ood_guard,Menolak pertanyaan di luar layanan sekolah,,,,Policy response,out_of_scope_handler,Gunakan data OOD dan threshold
+ambigu,Keamanan,aktif,clarification,Meminta klarifikasi ketika lebih dari satu maksud masuk akal,,,Berikan pilihan yang relevan,Classifier/rules,clarification_handler,
+jadwal_ujian,Backlog,ditunda,ml_rule_db,Mencari jadwal ujian,,"kelas,mata_pelajaran,tanggal",,Belum ditetapkan,,Ada pada dataset lama
+jadwal_kegiatan,Backlog,ditunda,ml_rule_db,Mencari kegiatan sekolah,,"tanggal,nama_kegiatan",,Belum ditetapkan,,Ada pada dataset lama
+informasi_prestasi,Backlog,ditunda,ml_rule_db,Mencari informasi prestasi,,"tahun,kategori",,Belum ditetapkan,,Ada pada dataset lama
