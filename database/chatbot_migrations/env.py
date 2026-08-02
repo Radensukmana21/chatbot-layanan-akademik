@@ -14,11 +14,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from app.chatbot_models import ChatbotBase
 from app.core.config import get_settings
-from app.models import Base
 
-# Import app.models memastikan seluruh tabel terdaftar pada Base.metadata.
-import app.models  # noqa: F401, E402
+# Memastikan seluruh model chatbot masuk ke metadata.
+import app.chatbot_models  # noqa: F401, E402
 
 
 config = context.config
@@ -29,16 +29,15 @@ if config.config_file_name is not None:
 
 settings = get_settings()
 
-if not settings.academic_database_url:
+if not settings.chatbot_database_url:
     raise RuntimeError(
-        "ACADEMIC_DATABASE_URL belum dikonfigurasi pada file .env."
+        "CHATBOT_DATABASE_URL belum dikonfigurasi pada file .env."
     )
 
-# ConfigParser memakai karakter persen untuk interpolasi.
-database_url = settings.academic_database_url.replace("%", "%%")
+database_url = settings.chatbot_database_url.replace("%", "%%")
 config.set_main_option("sqlalchemy.url", database_url)
 
-target_metadata = Base.metadata
+target_metadata = ChatbotBase.metadata
 
 
 def run_migrations_offline() -> None:

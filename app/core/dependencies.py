@@ -32,3 +32,27 @@ def get_academic_session() -> Generator[Session, None, None]:
 
     with session_factory() as session:
         yield session
+
+@lru_cache
+def get_chatbot_session_factory() -> sessionmaker[Session]:
+    settings = get_settings()
+
+    if not settings.chatbot_database_url:
+        raise RuntimeError(
+            "CHATBOT_DATABASE_URL belum dikonfigurasi."
+        )
+
+    engine = build_engine(settings.chatbot_database_url)
+
+    return sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+
+def get_chatbot_session() -> Generator[Session, None, None]:
+    session_factory = get_chatbot_session_factory()
+
+    with session_factory() as session:
+        yield session
