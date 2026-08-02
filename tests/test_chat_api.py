@@ -360,3 +360,64 @@ def test_does_not_reuse_completed_context(
 
     assert follow_up_payload["status"] == "unsupported"
     assert follow_up_payload["intent"] is None
+
+def test_continues_schedule_in_four_turns(
+    client: TestClient,
+) -> None:
+    first_response = post_message(
+        client,
+        "Jadwal",
+    )
+    first_payload = first_response.json()
+
+    assert first_payload["status"] == "needs_clarification"
+    assert first_payload["missing_entities"] == [
+        "class_name",
+        "day",
+    ]
+
+    second_response = post_message(
+        client,
+        "7",
+        context=first_payload["context"],
+    )
+    second_payload = second_response.json()
+
+    assert second_payload["status"] == "needs_clarification"
+    assert second_payload["entities"] == {
+        "class_name": "7",
+        "day": None,
+    }
+    assert second_payload["missing_entities"] == [
+        "class_group",
+        "day",
+    ]
+
+    third_response = post_message(
+        client,
+        "A",
+        context=second_payload["context"],
+    )
+    third_payload = third_response.json()
+
+    assert third_payload["status"] == "needs_clarification"
+    assert third_payload["entities"] == {
+        "class_name": "7A",
+        "day": None,
+    }
+    assert third_payload["missing_entities"] == ["day"]
+
+    fourth_response = post_message(
+        client,
+        "Senin",
+        context=third_payload["context"],
+    )
+    fourth_payload = fourth_response.json()
+
+    assert fourth_payload["status"] == "answered"
+    assert fourth_payload["entities"] == {
+        "class_name": "7A",
+        "day": "senin",
+    }
+    assert fourth_payload["context"]["is_active"] is False
+    assert fourth_payload["data"] is not None

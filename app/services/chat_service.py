@@ -108,6 +108,31 @@ def extract_group_reply(
 
     return match.group(1).upper()
 
+def extract_grade_reply(
+    message: str | None,
+) -> str | None:
+    """
+    Mengambil jawaban tingkat pendek pada percakapan aktif.
+
+    Contoh:
+    - 7
+    - kelas 8
+    - kls 9
+    - tingkat 7
+    """
+
+    normalized = normalize_text(message)
+
+    match = re.fullmatch(
+        r"(?:kelas|kls|tingkat)?\s*([789])",
+        normalized,
+    )
+
+    if match is None:
+        return None
+
+    return match.group(1)
+
 
 def merge_schedule_context(
     *,
@@ -145,6 +170,18 @@ def merge_schedule_context(
 
     class_name = extracted.class_name or previous_class
     day = extracted.day or previous_day
+
+    # Jawaban angka tunggal hanya dianggap sebagai tingkat
+    # ketika conversation jadwal sedang aktif dan kelas belum ada.
+    if (
+        extracted.class_name is None
+        and use_previous_context
+        and previous_class is None
+    ):
+        grade = extract_grade_reply(message)
+
+        if grade is not None:
+            class_name = grade
 
     # Jika sebelumnya pengguna hanya menyebut "kelas 7",
     # jawaban pendek "A" diubah menjadi "7A".
