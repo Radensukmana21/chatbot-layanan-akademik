@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_academic_session
+from app.core.dependencies import (
+    get_academic_session,
+    get_chatbot_session,
+)
+from app.repositories.conversation_repository import (
+    ConversationRepository,
+)
 from app.repositories.lesson_schedule_repository import (
     LessonScheduleRepository,
 )
@@ -13,17 +24,14 @@ from app.repositories.school_class_repository import (
     SchoolClassRepository,
 )
 from app.schemas.chat import (
-    ChatContextPayload,
     ChatEntitiesResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ChatScheduleDataResponse,
 )
 from app.schemas.schedule import ScheduleItemResponse
-from app.services.chat_service import (
-    ChatContext,
-    handle_chat_message,
-)
+from app.services.chat_service import handle_chat_message
+
 
 router = APIRouter(
     prefix="/api/v1/chat",
@@ -37,27 +45,64 @@ router = APIRouter(
 )
 def create_chat_message(
     payload: ChatMessageRequest,
-    session: Annotated[
+    academic_session: Annotated[
         Session,
         Depends(get_academic_session),
     ],
+    chatbot_session: Annotated[
+        Session,
+        Depends(get_chatbot_session),
+    ],
 ) -> ChatMessageResponse:
-    request_context = ChatContext()
+    conversation_repository = ConversationRepository(
+        chatbot_session
+    )
 
-    if payload.context is not None:
-        request_context = ChatContext(
-            intent=payload.context.intent,
-            class_name=payload.context.class_name,
-            day=payload.context.day,
-            is_active=payload.context.is_active,
+    if payload.conversation_id is None:
+        conversation = conversation_repository.create()
+    else:
+        conversation = conversation_repository.get_by_id(
+            str(payload.conversation_id)
         )
+
+        if conversation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "conversation_not_found",
+                    "message": (
+                        "Percakapan tidak ditemukan. "
+                        "Mulai percakapan baru tanpa "
+                        "conversation_id."
+                    ),
+                },
+            )
+
+    request_context = conversation_repository.load_context(
+        conversation
+    )
 
     result = handle_chat_message(
         message=payload.message,
-        class_repository=SchoolClassRepository(session),
-        schedule_repository=LessonScheduleRepository(session),
+        class_repository=SchoolClassRepository(
+            academic_session
+        ),
+        schedule_repository=LessonScheduleRepository(
+            academic_session
+        ),
         context=request_context,
     )
+
+    conversation_repository.save_context(
+        conversation,
+        result.context,
+    )
+
+    try:
+        chatbot_session.commit()
+    except Exception:
+        chatbot_session.rollback()
+        raise
 
     data: ChatScheduleDataResponse | None = None
 
@@ -74,6 +119,7 @@ def create_chat_message(
         )
 
     return ChatMessageResponse(
+        conversation_id=conversation.id,
         intent=result.intent,
         intent_source=result.intent_source,
         status=result.status,
@@ -84,10 +130,4 @@ def create_chat_message(
         missing_entities=list(result.missing_entities),
         message=result.message,
         data=data,
-        context=ChatContextPayload(
-            intent=result.context.intent,
-            class_name=result.context.class_name,
-            day=result.context.day,
-            is_active=result.context.is_active,
-        ),
     )

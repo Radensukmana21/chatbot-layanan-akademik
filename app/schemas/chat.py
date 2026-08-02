@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.schedule import ScheduleItemResponse
 
@@ -10,20 +11,17 @@ from app.schemas.schedule import ScheduleItemResponse
 ChatIntent = Literal["jadwal_pelajaran"]
 
 
-class ChatContextPayload(BaseModel):
-    intent: ChatIntent | None = None
-    class_name: str | None = None
-    day: str | None = None
-    is_active: bool = False
-
-
 class ChatMessageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
     message: str = Field(
         min_length=1,
         max_length=1000,
     )
 
-    context: ChatContextPayload | None = None
+    conversation_id: UUID | None = None
 
 
 class ChatEntitiesResponse(BaseModel):
@@ -37,6 +35,8 @@ class ChatScheduleDataResponse(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
+    conversation_id: UUID
+
     intent: ChatIntent | None
     intent_source: Literal["rule"] | None
 
@@ -53,6 +53,3 @@ class ChatMessageResponse(BaseModel):
     missing_entities: list[str]
     message: str
     data: ChatScheduleDataResponse | None = None
-
-    # Context ini dikirim kembali oleh frontend pada pesan berikutnya.
-    context: ChatContextPayload

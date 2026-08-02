@@ -9,7 +9,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.core.dependencies import get_academic_session
+from app.chatbot_models import ChatbotBase
+from app.core.dependencies import (
+    get_academic_session,
+    get_chatbot_session,
+)
 from app.main import app
 from app.models import (
     AcademicYear,
@@ -23,15 +27,22 @@ from app.models import (
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
-    engine = create_engine(
+    academic_engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
 
-    Base.metadata.create_all(engine)
+    chatbot_engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
-    with Session(engine) as session:
+    Base.metadata.create_all(academic_engine)
+    ChatbotBase.metadata.create_all(chatbot_engine)
+
+    with Session(academic_engine) as session:
         academic_year = AcademicYear(
             name="2025/2026",
             start_date=date(2025, 7, 1),
@@ -81,37 +92,54 @@ def client() -> Generator[TestClient, None, None]:
 
         session.commit()
 
-    def override_session() -> Generator[
+    def override_academic_session() -> Generator[
         Session,
         None,
         None,
     ]:
-        with Session(engine) as session:
+        with Session(academic_engine) as session:
+            yield session
+
+    def override_chatbot_session() -> Generator[
+        Session,
+        None,
+        None,
+    ]:
+        with Session(chatbot_engine) as session:
             yield session
 
     app.dependency_overrides[
         get_academic_session
-    ] = override_session
+    ] = override_academic_session
 
-    with TestClient(app) as test_client:
-        yield test_client
+    app.dependency_overrides[
+        get_chatbot_session
+    ] = override_chatbot_session
 
-    app.dependency_overrides.clear()
-    Base.metadata.drop_all(engine)
-    engine.dispose()
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+
+        Base.metadata.drop_all(academic_engine)
+        ChatbotBase.metadata.drop_all(chatbot_engine)
+
+        academic_engine.dispose()
+        chatbot_engine.dispose()
 
 
 def post_message(
     client: TestClient,
     message: str,
-    context: dict[str, object] | None = None,
+    conversation_id: str | None = None,
 ):
     payload: dict[str, object] = {
         "message": message,
     }
 
-    if context is not None:
-        payload["context"] = context
+    if conversation_id is not None:
+        payload["conversation_id"] = conversation_id
 
     return client.post(
         "/api/v1/chat/messages",
@@ -131,6 +159,7 @@ def test_answers_schedule_request(
 
     payload = response.json()
 
+    assert payload["conversation_id"] is not None
     assert payload["intent"] == "jadwal_pelajaran"
     assert payload["intent_source"] == "rule"
     assert payload["status"] == "answered"
@@ -158,9 +187,11 @@ def test_requests_missing_class(
         "Jadwal hari Senin",
     )
 
+    assert response.status_code == 200
+
     payload = response.json()
 
-    assert response.status_code == 200
+    assert payload["conversation_id"] is not None
     assert payload["status"] == "needs_clarification"
     assert payload["missing_entities"] == ["class_name"]
     assert payload["entities"]["day"] == "senin"
@@ -174,6 +205,8 @@ def test_requests_missing_day(
         client,
         "Jadwal kelas 7A",
     )
+
+    assert response.status_code == 200
 
     payload = response.json()
 
@@ -190,6 +223,8 @@ def test_requests_missing_class_group(
         "Jadwal kelas 8 hari Senin",
     )
 
+    assert response.status_code == 200
+
     payload = response.json()
 
     assert payload["status"] == "needs_clarification"
@@ -204,6 +239,8 @@ def test_rejects_invalid_class_format(
         client,
         "Jadwal kelas 8Z hari Senin",
     )
+
+    assert response.status_code == 200
 
     payload = response.json()
 
@@ -220,6 +257,8 @@ def test_returns_not_found_for_inactive_class(
         "Jadwal kelas 8A hari Senin",
     )
 
+    assert response.status_code == 200
+
     payload = response.json()
 
     assert payload["status"] == "not_found"
@@ -235,6 +274,8 @@ def test_returns_unsupported_for_other_intent(
         "Siapa kepala sekolah?",
     )
 
+    assert response.status_code == 200
+
     payload = response.json()
 
     assert payload["status"] == "unsupported"
@@ -247,11 +288,13 @@ def test_rejects_whitespace_message(
 ) -> None:
     response = post_message(client, "   ")
 
+    assert response.status_code == 200
+
     payload = response.json()
 
-    assert response.status_code == 200
     assert payload["status"] == "invalid_request"
     assert payload["message"] == "Pesan tidak boleh kosong."
+
 
 def test_continues_with_class_reply(
     client: TestClient,
@@ -262,40 +305,42 @@ def test_continues_with_class_reply(
     )
 
     first_payload = first_response.json()
+    conversation_id = first_payload["conversation_id"]
 
     assert first_payload["status"] == "needs_clarification"
-    assert first_payload["context"] == {
-        "intent": "jadwal_pelajaran",
+    assert first_payload["entities"] == {
         "class_name": None,
         "day": "senin",
-        "is_active": True,
     }
 
     second_response = post_message(
         client,
         "7A",
-        context=first_payload["context"],
+        conversation_id=conversation_id,
     )
+
+    assert second_response.status_code == 200
 
     second_payload = second_response.json()
 
     assert second_payload["status"] == "answered"
+    assert second_payload["conversation_id"] == conversation_id
     assert second_payload["entities"] == {
         "class_name": "7A",
         "day": "senin",
     }
-    assert second_payload["context"]["is_active"] is False
     assert len(second_payload["data"]["items"]) == 1
+
 
 def test_continues_with_day_reply(
     client: TestClient,
 ) -> None:
-    first_response = post_message(
+    first_payload = post_message(
         client,
         "Jadwal kelas 7A",
-    )
+    ).json()
 
-    first_payload = first_response.json()
+    conversation_id = first_payload["conversation_id"]
 
     assert first_payload["status"] == "needs_clarification"
     assert first_payload["missing_entities"] == ["day"]
@@ -303,72 +348,82 @@ def test_continues_with_day_reply(
     second_response = post_message(
         client,
         "Senin",
-        context=first_payload["context"],
+        conversation_id=conversation_id,
     )
+
+    assert second_response.status_code == 200
 
     second_payload = second_response.json()
 
     assert second_payload["status"] == "answered"
+    assert second_payload["conversation_id"] == conversation_id
     assert second_payload["entities"]["class_name"] == "7A"
     assert second_payload["entities"]["day"] == "senin"
+
 
 def test_continues_with_group_only_reply(
     client: TestClient,
 ) -> None:
-    first_response = post_message(
+    first_payload = post_message(
         client,
         "Jadwal kelas 7 hari Senin",
-    )
+    ).json()
 
-    first_payload = first_response.json()
+    conversation_id = first_payload["conversation_id"]
 
     assert first_payload["status"] == "needs_clarification"
     assert first_payload["missing_entities"] == ["class_group"]
-    assert first_payload["context"]["class_name"] == "7"
+    assert first_payload["entities"]["class_name"] == "7"
 
     second_response = post_message(
         client,
         "A",
-        context=first_payload["context"],
+        conversation_id=conversation_id,
     )
+
+    assert second_response.status_code == 200
 
     second_payload = second_response.json()
 
     assert second_payload["status"] == "answered"
+    assert second_payload["conversation_id"] == conversation_id
     assert second_payload["entities"]["class_name"] == "7A"
 
-def test_does_not_reuse_completed_context(
+
+def test_does_not_reuse_completed_conversation(
     client: TestClient,
 ) -> None:
-    answered_response = post_message(
+    answered_payload = post_message(
         client,
         "Jadwal kelas 7A hari Senin",
-    )
+    ).json()
 
-    answered_payload = answered_response.json()
-
-    assert answered_payload["status"] == "answered"
-    assert answered_payload["context"]["is_active"] is False
+    conversation_id = answered_payload["conversation_id"]
 
     follow_up_response = post_message(
         client,
         "Terima kasih",
-        context=answered_payload["context"],
+        conversation_id=conversation_id,
     )
+
+    assert follow_up_response.status_code == 200
 
     follow_up_payload = follow_up_response.json()
 
     assert follow_up_payload["status"] == "unsupported"
     assert follow_up_payload["intent"] is None
+    assert follow_up_payload["conversation_id"] == conversation_id
+
 
 def test_continues_schedule_in_four_turns(
     client: TestClient,
 ) -> None:
-    first_response = post_message(
+    first_payload = post_message(
         client,
         "Jadwal",
-    )
-    first_payload = first_response.json()
+    ).json()
+
+    conversation_id = first_payload["conversation_id"]
 
     assert first_payload["status"] == "needs_clarification"
     assert first_payload["missing_entities"] == [
@@ -376,14 +431,14 @@ def test_continues_schedule_in_four_turns(
         "day",
     ]
 
-    second_response = post_message(
+    second_payload = post_message(
         client,
         "7",
-        context=first_payload["context"],
-    )
-    second_payload = second_response.json()
+        conversation_id=conversation_id,
+    ).json()
 
     assert second_payload["status"] == "needs_clarification"
+    assert second_payload["conversation_id"] == conversation_id
     assert second_payload["entities"] == {
         "class_name": "7",
         "day": None,
@@ -393,31 +448,51 @@ def test_continues_schedule_in_four_turns(
         "day",
     ]
 
-    third_response = post_message(
+    third_payload = post_message(
         client,
         "A",
-        context=second_payload["context"],
-    )
-    third_payload = third_response.json()
+        conversation_id=conversation_id,
+    ).json()
 
     assert third_payload["status"] == "needs_clarification"
+    assert third_payload["conversation_id"] == conversation_id
     assert third_payload["entities"] == {
         "class_name": "7A",
         "day": None,
     }
     assert third_payload["missing_entities"] == ["day"]
 
-    fourth_response = post_message(
+    fourth_payload = post_message(
         client,
         "Senin",
-        context=third_payload["context"],
-    )
-    fourth_payload = fourth_response.json()
+        conversation_id=conversation_id,
+    ).json()
 
     assert fourth_payload["status"] == "answered"
+    assert fourth_payload["conversation_id"] == conversation_id
     assert fourth_payload["entities"] == {
         "class_name": "7A",
         "day": "senin",
     }
-    assert fourth_payload["context"]["is_active"] is False
     assert fourth_payload["data"] is not None
+
+
+def test_rejects_unknown_conversation_id(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "7A",
+        conversation_id=(
+            "00000000-0000-4000-8000-000000000000"
+        ),
+    )
+
+    assert response.status_code == 404
+
+    payload = response.json()
+
+    assert (
+        payload["detail"]["code"]
+        == "conversation_not_found"
+    )
