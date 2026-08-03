@@ -14,11 +14,26 @@ from app.repositories.lesson_schedule_repository import (
 from app.repositories.school_class_repository import (
     SchoolClassRepository,
 )
+from app.repositories.teacher_repository import (
+    TeacherRepository,
+)
+from app.services.teacher_chat import (
+    build_teacher_answer,
+    extract_teacher_chat_query,
+)
+from app.services.teacher_lookup import (
+    TeacherInformation,
+    TeacherSearchMode,
+    lookup_teacher_information,
+)
 from app.services.class_validator import validate_class_format
 from app.services.schedule_lookup import lookup_class_schedule
 
 
-ChatIntent = Literal["jadwal_pelajaran"]
+ChatIntent = Literal[
+    "jadwal_pelajaran",
+    "informasi_guru",
+]
 
 ChatStatus = Literal[
     "answered",
@@ -54,16 +69,13 @@ class ChatResult:
     message: str
     context: ChatContext
 
+    teacher_search_mode: TeacherSearchMode | None = None
+    teacher_query: str | None = None
+    teacher_items: tuple[TeacherInformation, ...] = ()
 
 def detect_rule_intent(
     message: str | None,
 ) -> ChatIntent | None:
-    """
-    Mendeteksi intent jadwal menggunakan rule transparan.
-
-    Machine learning belum digunakan pada tahap ini.
-    """
-
     normalized = normalize_text(message)
 
     if not normalized:
@@ -74,11 +86,15 @@ def detect_rule_intent(
     if "jadwal" in tokens:
         return "jadwal_pelajaran"
 
-    if "pelajaran" in tokens or "mapel" in tokens:
-        return "jadwal_pelajaran"
-
     if re.search(r"\bbelajar\s+apa\b", normalized):
         return "jadwal_pelajaran"
+
+    teacher_query = extract_teacher_chat_query(message)
+
+    if teacher_query.is_teacher_intent:
+        return "informasi_guru"
+
+    return None
 
     return None
 
@@ -236,6 +252,7 @@ def handle_chat_message(
     message: str,
     class_repository: SchoolClassRepository,
     schedule_repository: LessonScheduleRepository,
+    teacher_repository: TeacherRepository,
     context: ChatContext | None = None,
     today: date | None = None,
 ) -> ChatResult:
@@ -289,6 +306,134 @@ def handle_chat_message(
             ),
             context=empty_context,
         )
+
+    if intent == "informasi_guru":
+            teacher_query = extract_teacher_chat_query(
+                message
+            )
+
+            closed_context = ChatContext(
+                intent="informasi_guru",
+                is_active=False,
+            )
+
+            if (
+                teacher_query.search_mode is None
+                or teacher_query.query is None
+            ):
+                return ChatResult(
+                    intent="informasi_guru",
+                    intent_source="rule",
+                    status="invalid_request",
+                    class_name=None,
+                    day=None,
+                    missing_entities=(),
+                    academic_year=None,
+                    items=(),
+                    message=(
+                        "Sebutkan nama guru atau mata pelajaran. "
+                        "Contohnya: 'Bu Ane mengajar apa?' atau "
+                        "'Siapa guru Matematika?'."
+                    ),
+                    context=closed_context,
+                )
+
+            teacher_lookup = lookup_teacher_information(
+                query=teacher_query.query,
+                search_mode=teacher_query.search_mode,
+                class_repository=class_repository,
+                teacher_repository=teacher_repository,
+            )
+
+            if teacher_lookup.status == "not_found":
+                return ChatResult(
+                    intent="informasi_guru",
+                    intent_source="rule",
+                    status="not_found",
+                    class_name=None,
+                    day=None,
+                    missing_entities=(),
+                    academic_year=(
+                        teacher_lookup.academic_year
+                    ),
+                    items=(),
+                    message=teacher_lookup.message,
+                    context=closed_context,
+                    teacher_search_mode=(
+                        teacher_query.search_mode
+                    ),
+                    teacher_query=teacher_query.query,
+                )
+
+            if teacher_lookup.status in {
+                "no_active_academic_year",
+                "configuration_error",
+            }:
+                return ChatResult(
+                    intent="informasi_guru",
+                    intent_source="rule",
+                    status="unavailable",
+                    class_name=None,
+                    day=None,
+                    missing_entities=(),
+                    academic_year=None,
+                    items=(),
+                    message=(
+                        "Data guru sedang tidak tersedia. "
+                        "Silakan hubungi administrator sekolah."
+                    ),
+                    context=closed_context,
+                    teacher_search_mode=(
+                        teacher_query.search_mode
+                    ),
+                    teacher_query=teacher_query.query,
+                )
+
+            if teacher_lookup.status != "ok":
+                return ChatResult(
+                    intent="informasi_guru",
+                    intent_source="rule",
+                    status="invalid_request",
+                    class_name=None,
+                    day=None,
+                    missing_entities=(),
+                    academic_year=(
+                        teacher_lookup.academic_year
+                    ),
+                    items=(),
+                    message=teacher_lookup.message,
+                    context=closed_context,
+                    teacher_search_mode=(
+                        teacher_query.search_mode
+                    ),
+                    teacher_query=teacher_query.query,
+                )
+
+            answer = build_teacher_answer(
+                search_mode=teacher_query.search_mode,
+                query=teacher_query.query,
+                items=teacher_lookup.items,
+            )
+
+            return ChatResult(
+                intent="informasi_guru",
+                intent_source="rule",
+                status="answered",
+                class_name=None,
+                day=None,
+                missing_entities=(),
+                academic_year=(
+                    teacher_lookup.academic_year
+                ),
+                items=(),
+                message=answer,
+                context=closed_context,
+                teacher_search_mode=(
+                    teacher_query.search_mode
+                ),
+                teacher_query=teacher_query.query,
+                teacher_items=teacher_lookup.items,
+            )
 
     merged_context = merge_schedule_context(
         message=message,

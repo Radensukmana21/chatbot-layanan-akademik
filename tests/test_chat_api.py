@@ -496,3 +496,69 @@ def test_rejects_unknown_conversation_id(
         payload["detail"]["code"]
         == "conversation_not_found"
     )
+
+def test_answers_teacher_question_by_name(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Guru Matematika mengajar apa?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["intent"] == "informasi_guru"
+    assert payload["intent_source"] == "rule"
+    assert payload["status"] == "answered"
+
+    assert payload["data"]["search_mode"] == "name"
+    assert payload["data"]["query"] == "matematika"
+    assert len(payload["data"]["items"]) == 1
+
+    teacher = payload["data"]["items"][0]
+
+    assert teacher["name"] == "Guru Matematika"
+    assert teacher["subjects"] == ["Matematika"]
+    assert teacher["classes"] == ["7A"]
+
+
+def test_answers_teacher_question_by_subject(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Siapa guru Matematika?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["intent"] == "informasi_guru"
+    assert payload["status"] == "answered"
+    assert payload["data"]["search_mode"] == "subject"
+    assert payload["data"]["query"] == "matematika"
+
+    assert (
+        payload["data"]["items"][0]["name"]
+        == "Guru Matematika"
+    )
+
+
+def test_requests_complete_teacher_question(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Informasi guru",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["intent"] == "informasi_guru"
+    assert payload["status"] == "invalid_request"
+    assert payload["data"] is None

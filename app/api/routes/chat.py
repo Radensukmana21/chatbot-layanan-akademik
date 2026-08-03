@@ -10,11 +10,11 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.dependencies import (
     get_academic_session,
     get_chatbot_session,
 )
-from app.core.config import get_settings
 from app.repositories.conversation_message_repository import (
     ConversationMessageRepository,
 )
@@ -27,13 +27,18 @@ from app.repositories.lesson_schedule_repository import (
 from app.repositories.school_class_repository import (
     SchoolClassRepository,
 )
+from app.repositories.teacher_repository import (
+    TeacherRepository,
+)
 from app.schemas.chat import (
     ChatEntitiesResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ChatScheduleDataResponse,
+    ChatTeacherDataResponse,
 )
 from app.schemas.schedule import ScheduleItemResponse
+from app.schemas.teacher import TeacherInformationResponse
 from app.services.chat_service import handle_chat_message
 
 
@@ -58,14 +63,9 @@ def create_chat_message(
         Depends(get_chatbot_session),
     ],
 ) -> ChatMessageResponse:
-    settings = get_settings()
-    retention_days = (
-        settings.chat_message_retention_days
-    )
     conversation_repository = ConversationRepository(
         chatbot_session
     )
-
     message_repository = ConversationMessageRepository(
         chatbot_session
     )
@@ -94,6 +94,9 @@ def create_chat_message(
         conversation
     )
 
+    settings = get_settings()
+    retention_days = settings.chat_message_retention_days
+
     message_repository.add_user_message(
         conversation_id=conversation.id,
         content=payload.message,
@@ -106,6 +109,9 @@ def create_chat_message(
             academic_session
         ),
         schedule_repository=LessonScheduleRepository(
+            academic_session
+        ),
+        teacher_repository=TeacherRepository(
             academic_session
         ),
         context=request_context,
@@ -133,10 +139,15 @@ def create_chat_message(
         chatbot_session.rollback()
         raise
 
-    data: ChatScheduleDataResponse | None = None
+    data: (
+        ChatScheduleDataResponse
+        | ChatTeacherDataResponse
+        | None
+    ) = None
 
     if (
-        result.status == "answered"
+        result.intent == "jadwal_pelajaran"
+        and result.status == "answered"
         and result.academic_year is not None
     ):
         data = ChatScheduleDataResponse(
@@ -145,6 +156,30 @@ def create_chat_message(
                 ScheduleItemResponse.model_validate(item)
                 for item in result.items
             ],
+        )
+
+    elif (
+        result.intent == "informasi_guru"
+        and result.status == "answered"
+        and result.academic_year is not None
+        and result.teacher_search_mode is not None
+        and result.teacher_query is not None
+    ):
+        teacher_items = [
+            TeacherInformationResponse(
+                id=item.id,
+                name=item.name,
+                subjects=list(item.subjects),
+                classes=list(item.classes),
+            )
+            for item in result.teacher_items
+        ]
+
+        data = ChatTeacherDataResponse(
+            academic_year=result.academic_year,
+            search_mode=result.teacher_search_mode,
+            query=result.teacher_query,
+            items=teacher_items,
         )
 
     return ChatMessageResponse(
