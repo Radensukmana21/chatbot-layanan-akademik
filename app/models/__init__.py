@@ -4,6 +4,10 @@ from app.models.school_class import SchoolClass
 from app.models.lesson_schedule import LessonSchedule
 from app.models.subject import Subject
 from app.models.teacher import Teacher
+from app.models.extracurricular import Extracurricular
+from app.models.extracurricular_schedule import (
+    ExtracurricularSchedule,
+)
 
 
 __all__ = [
@@ -13,4 +17,6 @@ __all__ = [
     "SchoolClass",
     "Subject",
     "Teacher",
+    "Extracurricular",
+    "ExtracurricularSchedule",
 ]
