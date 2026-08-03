@@ -9,11 +9,15 @@ from app.repositories.lesson_schedule_repository import (
 from app.repositories.conversation_repository import (
     ConversationRepository,
 )
+from app.repositories.conversation_message_repository import (
+    ConversationMessageRepository,
+)
 
 __all__ = [
     "MultipleActiveAcademicYearsError",
     "SchoolClassRepository",
     "LessonScheduleRecord",
     "LessonScheduleRepository",
-    "ConversationRepository"
+    "ConversationRepository",
+    "ConversationMessageRepository",
 ]

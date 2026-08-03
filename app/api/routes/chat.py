@@ -14,6 +14,9 @@ from app.core.dependencies import (
     get_academic_session,
     get_chatbot_session,
 )
+from app.repositories.conversation_message_repository import (
+    ConversationMessageRepository,
+)
 from app.repositories.conversation_repository import (
     ConversationRepository,
 )
@@ -58,6 +61,10 @@ def create_chat_message(
         chatbot_session
     )
 
+    message_repository = ConversationMessageRepository(
+        chatbot_session
+    )
+
     if payload.conversation_id is None:
         conversation = conversation_repository.create()
     else:
@@ -82,6 +89,11 @@ def create_chat_message(
         conversation
     )
 
+    message_repository.add_user_message(
+        conversation_id=conversation.id,
+        content=payload.message,
+    )
+
     result = handle_chat_message(
         message=payload.message,
         class_repository=SchoolClassRepository(
@@ -96,6 +108,16 @@ def create_chat_message(
     conversation_repository.save_context(
         conversation,
         result.context,
+    )
+
+    message_repository.add_assistant_message(
+        conversation_id=conversation.id,
+        content=result.message,
+        intent=result.intent,
+        intent_source=result.intent_source,
+        response_status=result.status,
+        class_name=result.class_name,
+        day=result.day,
     )
 
     try:
