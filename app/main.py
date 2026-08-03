@@ -6,6 +6,10 @@ from app.api.routes.schedules import router as schedules_router
 from app.api.routes.chat import router as chat_router
 from app.core.config import get_settings
 
+from app.api.routes.teachers import (
+    router as teachers_router,
+)
+
 
 settings = get_settings()
 
@@ -19,9 +23,9 @@ app = FastAPI(
     ),
 )
 
-app.include_router(schedules_router)
 app.include_router(chat_router)
 app.include_router(schedules_router)
+app.include_router(teachers_router)
 
 app.add_middleware(
     CORSMiddleware,
