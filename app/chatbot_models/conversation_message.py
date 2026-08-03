@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -38,9 +39,39 @@ class ConversationMessage(ChatbotBase):
         nullable=False,
     )
 
+    # Content berisi hasil kebijakan penyimpanan,
+    # bukan selalu teks mentah dari pengguna.
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+
+    storage_policy: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="full",
+        server_default="full",
+        index=True,
+    )
+
+    contains_sensitive_data: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+        index=True,
+    )
+
+    retention_until: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        index=True,
+    )
+
+    redacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        index=True,
     )
 
     intent: Mapped[str | None] = mapped_column(
@@ -78,6 +109,13 @@ class ConversationMessage(ChatbotBase):
         CheckConstraint(
             "role IN ('user', 'assistant')",
             name="valid_role",
+        ),
+        CheckConstraint(
+            (
+                "storage_policy IN "
+                "('full', 'redacted', 'metadata_only')"
+            ),
+            name="valid_storage_policy",
         ),
         Index(
             "ix_conversation_messages_conversation_order",

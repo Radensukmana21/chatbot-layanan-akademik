@@ -118,3 +118,51 @@ def test_lists_only_messages_for_requested_conversation(
 
     assert len(messages) == 1
     assert messages[0].content == "Jadwal kelas 7A"
+
+def test_redacts_sensitive_user_message(
+    session: Session,
+) -> None:
+    conversation_repository = ConversationRepository(
+        session
+    )
+    message_repository = ConversationMessageRepository(
+        session
+    )
+
+    conversation = conversation_repository.create()
+
+    message = message_repository.add_user_message(
+        conversation_id=conversation.id,
+        content="Hubungi saya di 081234567890",
+        storage_policy="full",
+        retention_days=7,
+    )
+
+    assert message.content == "Hubungi saya di [PHONE]"
+    assert message.storage_policy == "redacted"
+    assert message.contains_sensitive_data is True
+    assert message.retention_until is not None
+
+
+def test_stores_metadata_only_message(
+    session: Session,
+) -> None:
+    conversation_repository = ConversationRepository(
+        session
+    )
+    message_repository = ConversationMessageRepository(
+        session
+    )
+
+    conversation = conversation_repository.create()
+
+    message = message_repository.add_user_message(
+        conversation_id=conversation.id,
+        content="Nama dan alasan izin pribadi",
+        storage_policy="metadata_only",
+        retention_days=7,
+    )
+
+    assert message.storage_policy == "metadata_only"
+    assert message.contains_sensitive_data is True
+    assert "Nama dan alasan" not in message.content
