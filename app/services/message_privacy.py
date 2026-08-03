@@ -16,6 +16,10 @@ METADATA_ONLY_PLACEHOLDER = (
     "[konten tidak disimpan sesuai kebijakan privasi]"
 )
 
+RETENTION_EXPIRED_PLACEHOLDER = (
+    "[konten dihapus setelah masa retensi]"
+)
+
 PHONE_PATTERN = re.compile(
     r"(?<!\d)(?:\+62|62|0)8[\d\s-]{7,15}\d(?!\d)"
 )

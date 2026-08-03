@@ -14,6 +14,7 @@ from app.core.dependencies import (
     get_academic_session,
     get_chatbot_session,
 )
+from app.core.config import get_settings
 from app.repositories.conversation_message_repository import (
     ConversationMessageRepository,
 )
@@ -57,6 +58,10 @@ def create_chat_message(
         Depends(get_chatbot_session),
     ],
 ) -> ChatMessageResponse:
+    settings = get_settings()
+    retention_days = (
+        settings.chat_message_retention_days
+    )
     conversation_repository = ConversationRepository(
         chatbot_session
     )
@@ -92,6 +97,7 @@ def create_chat_message(
     message_repository.add_user_message(
         conversation_id=conversation.id,
         content=payload.message,
+        retention_days=retention_days,
     )
 
     result = handle_chat_message(
@@ -118,6 +124,7 @@ def create_chat_message(
         response_status=result.status,
         class_name=result.class_name,
         day=result.day,
+        retention_days=retention_days,
     )
 
     try:
