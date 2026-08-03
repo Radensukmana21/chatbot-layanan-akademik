@@ -16,6 +16,11 @@ from app.repositories.teacher_repository import (
     TeacherRecord,
     TeacherRepository,
 )
+from app.repositories.extracurricular_repository import (
+    ExtracurricularRecord,
+    ExtracurricularRepository,
+    ExtracurricularScheduleRecord,
+)
 
 __all__ = [
     "MultipleActiveAcademicYearsError",
@@ -25,5 +30,8 @@ __all__ = [
     "ConversationRepository",
     "ConversationMessageRepository",
     "TeacherRecord",
-    "TeacherRepository"
+    "TeacherRepository",
+    "ExtracurricularRecord",
+    "ExtracurricularRepository",
+    "ExtracurricularScheduleRecord",
 ]
