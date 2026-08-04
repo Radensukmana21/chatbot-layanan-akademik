@@ -121,3 +121,8 @@ git push -u origin main
 ```
 
 Nama repository yang disarankan: **`chatbot-layanan-akademik`**.
+
+## Dokumentasi Proyek
+
+- [Konteks penelitian](docs/PROJECT_CONTEXT.md)
+- [Status pengembangan](docs/PROJECT_STATUS.md)
