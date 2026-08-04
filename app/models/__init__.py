@@ -8,6 +8,7 @@ from app.models.extracurricular import Extracurricular
 from app.models.extracurricular_schedule import (
     ExtracurricularSchedule,
 )
+from app.models.permission_request import PermissionRequest
 
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "Teacher",
     "Extracurricular",
     "ExtracurricularSchedule",
+    "PermissionRequest",
 ]
