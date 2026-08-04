@@ -30,8 +30,12 @@ from app.repositories.school_class_repository import (
 from app.repositories.teacher_repository import (
     TeacherRepository,
 )
+from app.repositories.extracurricular_repository import (
+    ExtracurricularRepository,
+)
 from app.schemas.chat import (
     ChatEntitiesResponse,
+    ChatExtracurricularDataResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ChatScheduleDataResponse,
@@ -39,6 +43,10 @@ from app.schemas.chat import (
 )
 from app.schemas.schedule import ScheduleItemResponse
 from app.schemas.teacher import TeacherInformationResponse
+from app.schemas.extracurricular import (
+    ExtracurricularResponse,
+    ExtracurricularScheduleResponse,
+)
 from app.services.chat_service import handle_chat_message
 
 
@@ -114,6 +122,11 @@ def create_chat_message(
         teacher_repository=TeacherRepository(
             academic_session
         ),
+        extracurricular_repository=(
+            ExtracurricularRepository(
+                academic_session
+            )
+        ),
         context=request_context,
     )
 
@@ -142,6 +155,7 @@ def create_chat_message(
     data: (
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
+        | ChatExtracurricularDataResponse
         | None
     ) = None
 
@@ -180,6 +194,45 @@ def create_chat_message(
             search_mode=result.teacher_search_mode,
             query=result.teacher_query,
             items=teacher_items,
+        )
+    
+    elif (
+        result.intent == "informasi_ekstrakurikuler"
+        and result.status == "answered"
+        and result.extracurricular_search_mode
+        is not None
+        and result.extracurricular_focus is not None
+    ):
+        data = ChatExtracurricularDataResponse(
+            search_mode=(
+                result.extracurricular_search_mode
+            ),
+            focus=result.extracurricular_focus,
+            query=result.extracurricular_query,
+            items=[
+                ExtracurricularResponse(
+                    id=item.id,
+                    name=item.name,
+                    advisor_name=item.advisor_name,
+                    location=item.location,
+                    description=item.description,
+                    schedules=[
+                        ExtracurricularScheduleResponse(
+                            day=schedule.day,
+                            start_time=(
+                                schedule.start_time
+                            ),
+                            end_time=(
+                                schedule.end_time
+                            ),
+                        )
+                        for schedule in item.schedules
+                    ],
+                )
+                for item in (
+                    result.extracurricular_items
+                )
+            ],
         )
 
     return ChatMessageResponse(

@@ -22,6 +22,8 @@ from app.models import (
     SchoolClass,
     Subject,
     Teacher,
+    Extracurricular,
+    ExtracurricularSchedule,
 )
 
 
@@ -89,6 +91,70 @@ def client() -> Generator[TestClient, None, None]:
                 source_key="test:chat:schedule:1",
             )
         )
+
+        extracurricular_advisor = Teacher(
+            name="Guru Pembina",
+            normalized_name="guru pembina",
+            is_active=True,
+        )
+
+        session.add(extracurricular_advisor)
+        session.flush()
+
+        pramuka = Extracurricular(
+            name="Pramuka",
+            normalized_name="pramuka",
+            advisor_teacher_id=(
+                extracurricular_advisor.id
+            ),
+            location="Lapangan",
+            description="Kegiatan kepanduan",
+            is_active=True,
+            source_key="test:chat:extracurricular:1",
+        )
+
+        pmr = Extracurricular(
+            name="PMR",
+            normalized_name="pmr",
+            advisor_teacher_id=(
+                extracurricular_advisor.id
+            ),
+            location="UKS",
+            description="Palang Merah Remaja",
+            is_active=True,
+            source_key="test:chat:extracurricular:2",
+        )
+
+        session.add_all([
+            pramuka,
+            pmr,
+        ])
+        session.flush()
+
+        session.add_all([
+            ExtracurricularSchedule(
+                extracurricular_id=pramuka.id,
+                day="jumat",
+                start_time=time(14, 0),
+                end_time=time(16, 0),
+                is_active=True,
+                source_key=(
+                    "test:chat:"
+                    "extracurricular_schedule:1"
+                ),
+            ),
+            ExtracurricularSchedule(
+                extracurricular_id=pmr.id,
+                day="rabu",
+                start_time=time(14, 0),
+                end_time=time(16, 0),
+                is_active=True,
+                source_key=(
+                    "test:chat:"
+                    "extracurricular_schedule:2"
+                ),
+            ),
+        ])
 
         session.commit()
 
@@ -546,7 +612,6 @@ def test_answers_teacher_question_by_subject(
         == "Guru Matematika"
     )
 
-
 def test_requests_complete_teacher_question(
     client: TestClient,
 ) -> None:
@@ -560,5 +625,140 @@ def test_requests_complete_teacher_question(
     payload = response.json()
 
     assert payload["intent"] == "informasi_guru"
+    assert payload["status"] == "invalid_request"
+    assert payload["data"] is None
+
+def test_lists_extracurriculars_from_chat(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Apa saja ekstrakurikuler yang tersedia?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "informasi_ekstrakurikuler"
+    )
+    assert payload["intent_source"] == "rule"
+    assert payload["status"] == "answered"
+
+    assert payload["data"]["search_mode"] == "list"
+    assert payload["data"]["focus"] == "general"
+    assert payload["data"]["query"] is None
+
+    names = [
+        item["name"]
+        for item in payload["data"]["items"]
+    ]
+
+    assert names == ["PMR", "Pramuka"]
+
+
+def test_answers_extracurricular_schedule(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Jadwal Pramuka kapan?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "informasi_ekstrakurikuler"
+    )
+    assert payload["status"] == "answered"
+    assert payload["data"]["search_mode"] == "name"
+    assert payload["data"]["focus"] == "schedule"
+    assert payload["data"]["query"] == "pramuka"
+
+    item = payload["data"]["items"][0]
+
+    assert item["name"] == "Pramuka"
+    assert item["schedules"] == [
+        {
+            "day": "jumat",
+            "start_time": "14:00:00",
+            "end_time": "16:00:00",
+        }
+    ]
+
+
+def test_answers_extracurricular_advisor(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Siapa pembina PMR?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "informasi_ekstrakurikuler"
+    )
+    assert payload["status"] == "answered"
+    assert payload["data"]["focus"] == "advisor"
+
+    assert (
+        payload["data"]["items"][0][
+            "advisor_name"
+        ]
+        == "Guru Pembina"
+    )
+
+
+def test_answers_extracurricular_location(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Pramuka dilaksanakan di mana?",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "informasi_ekstrakurikuler"
+    )
+    assert payload["status"] == "answered"
+    assert payload["data"]["focus"] == "location"
+
+    assert (
+        payload["data"]["items"][0]["location"]
+        == "Lapangan"
+    )
+
+
+def test_requests_complete_extracurricular_query(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Tolong bantu tentang ekskul",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "informasi_ekstrakurikuler"
+    )
     assert payload["status"] == "invalid_request"
     assert payload["data"] is None

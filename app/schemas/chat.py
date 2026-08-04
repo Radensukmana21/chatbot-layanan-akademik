@@ -5,6 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.extracurricular import (
+    ExtracurricularResponse,
+)
 from app.schemas.schedule import ScheduleItemResponse
 from app.schemas.teacher import TeacherInformationResponse
 
@@ -12,6 +15,7 @@ from app.schemas.teacher import TeacherInformationResponse
 ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
+    "informasi_ekstrakurikuler",
 ]
 
 
@@ -22,7 +26,6 @@ class ChatMessageRequest(BaseModel):
         min_length=1,
         max_length=1000,
     )
-
     conversation_id: UUID | None = None
 
 
@@ -41,6 +44,20 @@ class ChatTeacherDataResponse(BaseModel):
     search_mode: Literal["name", "subject"]
     query: str
     items: list[TeacherInformationResponse]
+
+
+class ChatExtracurricularDataResponse(BaseModel):
+    search_mode: Literal["list", "name"]
+
+    focus: Literal[
+        "general",
+        "schedule",
+        "advisor",
+        "location",
+    ]
+
+    query: str | None = None
+    items: list[ExtracurricularResponse]
 
 
 class ChatMessageResponse(BaseModel):
@@ -65,5 +82,6 @@ class ChatMessageResponse(BaseModel):
     data: (
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
+        | ChatExtracurricularDataResponse
         | None
     ) = None

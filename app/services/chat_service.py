@@ -26,6 +26,20 @@ from app.services.teacher_lookup import (
     TeacherSearchMode,
     lookup_teacher_information,
 )
+from app.repositories.extracurricular_repository import (
+    ExtracurricularRecord,
+    ExtracurricularRepository,
+)
+from app.services.extracurricular_chat import (
+    ExtracurricularFocus,
+    ExtracurricularSearchMode,
+    build_extracurricular_answer,
+    extract_extracurricular_chat_query,
+)
+from app.services.extracurricular_lookup import (
+    list_extracurricular_information,
+    search_extracurricular_information,
+)
 from app.services.class_validator import validate_class_format
 from app.services.schedule_lookup import lookup_class_schedule
 
@@ -33,6 +47,7 @@ from app.services.schedule_lookup import lookup_class_schedule
 ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
+    "informasi_ekstrakurikuler",
 ]
 
 ChatStatus = Literal[
@@ -73,6 +88,21 @@ class ChatResult:
     teacher_query: str | None = None
     teacher_items: tuple[TeacherInformation, ...] = ()
 
+    extracurricular_search_mode: (
+        ExtracurricularSearchMode | None
+    ) = None
+
+    extracurricular_focus: (
+        ExtracurricularFocus | None
+    ) = None
+
+    extracurricular_query: str | None = None
+
+    extracurricular_items: tuple[
+        ExtracurricularRecord,
+        ...,
+    ] = ()
+
 def detect_rule_intent(
     message: str | None,
 ) -> ChatIntent | None:
@@ -80,6 +110,13 @@ def detect_rule_intent(
 
     if not normalized:
         return None
+
+    extracurricular_query = (
+        extract_extracurricular_chat_query(message)
+    )
+
+    if extracurricular_query.is_extracurricular_intent:
+        return "informasi_ekstrakurikuler"
 
     tokens = set(normalized.split())
 
@@ -96,7 +133,6 @@ def detect_rule_intent(
 
     return None
 
-    return None
 
 
 def extract_group_reply(
@@ -253,6 +289,7 @@ def handle_chat_message(
     class_repository: SchoolClassRepository,
     schedule_repository: LessonScheduleRepository,
     teacher_repository: TeacherRepository,
+    extracurricular_repository: ExtracurricularRepository,
     context: ChatContext | None = None,
     today: date | None = None,
 ) -> ChatResult:
@@ -305,6 +342,161 @@ def handle_chat_message(
                 "mengecek jadwal pelajaran."
             ),
             context=empty_context,
+        )
+
+    if intent == "informasi_ekstrakurikuler":
+        extracurricular_query = (
+            extract_extracurricular_chat_query(
+                message
+            )
+        )
+
+        closed_context = ChatContext(
+            intent="informasi_ekstrakurikuler",
+            is_active=False,
+        )
+
+        if (
+            extracurricular_query.search_mode is None
+            or extracurricular_query.focus is None
+        ):
+            return ChatResult(
+                intent="informasi_ekstrakurikuler",
+                intent_source="rule",
+                status="invalid_request",
+                class_name=None,
+                day=None,
+                missing_entities=(),
+                academic_year=None,
+                items=(),
+                message=(
+                    "Sebutkan informasi ekstrakurikuler "
+                    "yang dibutuhkan. Contohnya: "
+                    "'Apa saja ekstrakurikuler?', "
+                    "'Jadwal Pramuka kapan?', atau "
+                    "'Siapa pembina PMR?'."
+                ),
+                context=closed_context,
+            )
+
+        if extracurricular_query.search_mode == "list":
+            lookup_result = (
+                list_extracurricular_information(
+                    repository=(
+                        extracurricular_repository
+                    ),
+                )
+            )
+        else:
+            if extracurricular_query.query is None:
+                return ChatResult(
+                    intent=(
+                        "informasi_ekstrakurikuler"
+                    ),
+                    intent_source="rule",
+                    status="invalid_request",
+                    class_name=None,
+                    day=None,
+                    missing_entities=(),
+                    academic_year=None,
+                    items=(),
+                    message=(
+                        "Sebutkan nama "
+                        "ekstrakurikulernya."
+                    ),
+                    context=closed_context,
+                    extracurricular_search_mode=(
+                        extracurricular_query.search_mode
+                    ),
+                    extracurricular_focus=(
+                        extracurricular_query.focus
+                    ),
+                )
+
+            lookup_result = (
+                search_extracurricular_information(
+                    query=extracurricular_query.query,
+                    repository=(
+                        extracurricular_repository
+                    ),
+                )
+            )
+
+        if lookup_result.status == "not_found":
+            return ChatResult(
+                intent="informasi_ekstrakurikuler",
+                intent_source="rule",
+                status="not_found",
+                class_name=None,
+                day=None,
+                missing_entities=(),
+                academic_year=None,
+                items=(),
+                message=lookup_result.message,
+                context=closed_context,
+                extracurricular_search_mode=(
+                    extracurricular_query.search_mode
+                ),
+                extracurricular_focus=(
+                    extracurricular_query.focus
+                ),
+                extracurricular_query=(
+                    extracurricular_query.query
+                ),
+            )
+
+        if lookup_result.status == "invalid_query":
+            return ChatResult(
+                intent="informasi_ekstrakurikuler",
+                intent_source="rule",
+                status="invalid_request",
+                class_name=None,
+                day=None,
+                missing_entities=(),
+                academic_year=None,
+                items=(),
+                message=lookup_result.message,
+                context=closed_context,
+                extracurricular_search_mode=(
+                    extracurricular_query.search_mode
+                ),
+                extracurricular_focus=(
+                    extracurricular_query.focus
+                ),
+                extracurricular_query=(
+                    extracurricular_query.query
+                ),
+            )
+
+        answer = build_extracurricular_answer(
+            search_mode=(
+                extracurricular_query.search_mode
+            ),
+            focus=extracurricular_query.focus,
+            items=lookup_result.items,
+        )
+
+        return ChatResult(
+            intent="informasi_ekstrakurikuler",
+            intent_source="rule",
+            status="answered",
+            class_name=None,
+            day=None,
+            missing_entities=(),
+            academic_year=None,
+            items=(),
+            message=answer,
+            context=closed_context,
+            extracurricular_search_mode=(
+                extracurricular_query.search_mode
+            ),
+            extracurricular_focus=(
+                extracurricular_query.focus
+            ),
+            extracurricular_query=(
+                extracurricular_query.query
+            ),
+            extracurricular_items=lookup_result.items,
         )
 
     if intent == "informasi_guru":
