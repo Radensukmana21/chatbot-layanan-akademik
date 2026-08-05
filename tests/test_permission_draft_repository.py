@@ -253,3 +253,48 @@ def test_deletes_expired_drafts_in_batch(
         )
 
         assert len(remaining) == 1
+
+def test_counts_expired_permission_drafts(
+    engine,
+) -> None:
+    now = datetime(2026, 8, 5, 10, 0)
+
+    with Session(engine) as session:
+        repository = PermissionDraftRepository(
+            session
+        )
+
+        expired_conversations = [
+            create_conversation(session)
+            for _ in range(2)
+        ]
+
+        active_conversation = (
+            create_conversation(session)
+        )
+
+        for conversation in expired_conversations:
+            repository.start(
+                conversation_id=conversation.id,
+                now=now,
+                ttl_minutes=1,
+            )
+
+        repository.start(
+            conversation_id=(
+                active_conversation.id
+            ),
+            now=now,
+            ttl_minutes=60,
+        )
+
+        expired_count = (
+            repository.count_expired(
+                now=(
+                    now
+                    + timedelta(minutes=2)
+                ),
+            )
+        )
+
+        assert expired_count == 2

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.chatbot_models import PermissionDraft
@@ -139,6 +139,26 @@ class PermissionDraftRepository:
         self._session.flush()
 
         return int(result.rowcount or 0)
+
+    def count_expired(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        current_time = now or utc_now_naive()
+
+        statement = (
+            select(func.count())
+            .select_from(PermissionDraft)
+            .where(
+                PermissionDraft.expires_at
+                <= current_time
+            )
+        )
+
+        return int(
+            self._session.scalar(statement) or 0
+        )
 
     def delete_expired(
         self,
