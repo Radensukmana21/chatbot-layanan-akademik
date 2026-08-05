@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
@@ -80,6 +81,7 @@ def cleanup_expired_permission_drafts(
     session_factory: sessionmaker[Session],
     batch_size: int = DEFAULT_BATCH_SIZE,
     dry_run: bool = False,
+    now: datetime | None = None,
 ) -> int:
     if batch_size < 1:
         raise ValueError(
@@ -92,7 +94,9 @@ def cleanup_expired_permission_drafts(
         )
 
         if dry_run:
-            return repository.count_expired()
+            return repository.count_expired(
+                now=now
+            )
 
         total_deleted = 0
 
@@ -100,6 +104,7 @@ def cleanup_expired_permission_drafts(
             while True:
                 deleted_count = (
                     repository.delete_expired(
+                        now=now,
                         batch_size=batch_size,
                     )
                 )

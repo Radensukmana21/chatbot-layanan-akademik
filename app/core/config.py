@@ -54,6 +54,32 @@ def _as_positive_int(
 
     return parsed
 
+def _as_int_in_range(
+    value: str | None,
+    *,
+    default: int,
+    variable_name: str,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if value is None:
+        return default
+
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{variable_name} harus berupa "
+            "bilangan bulat."
+        ) from exc
+
+    if not minimum <= parsed <= maximum:
+        raise ValueError(
+            f"{variable_name} harus berada "
+            f"antara {minimum} dan {maximum}."
+        )
+
+    return parsed
 
 def _origins(
     value: str | None,
@@ -86,6 +112,13 @@ class Settings:
 
     chat_message_retention_days: int
     auto_retrain_enabled: bool
+
+    scheduler_enabled: bool
+    scheduler_timezone: str
+
+    chatbot_maintenance_hour: int
+    chatbot_maintenance_minute: int
+    chatbot_maintenance_batch_size: int
 
 
 @lru_cache
@@ -135,5 +168,50 @@ def get_settings() -> Settings:
         auto_retrain_enabled=_as_bool(
             os.getenv("AUTO_RETRAIN_ENABLED"),
             default=False,
+        ),
+        scheduler_enabled=_as_bool(
+            os.getenv("SCHEDULER_ENABLED"),
+            default=False,
+        ),
+        scheduler_timezone=os.getenv(
+            "SCHEDULER_TIMEZONE",
+            "Asia/Jakarta",
+        ),
+        chatbot_maintenance_hour=(
+            _as_int_in_range(
+                os.getenv(
+                    "CHATBOT_MAINTENANCE_HOUR"
+                ),
+                default=2,
+                variable_name=(
+                    "CHATBOT_MAINTENANCE_HOUR"
+                ),
+                minimum=0,
+                maximum=23,
+            )
+        ),
+        chatbot_maintenance_minute=(
+            _as_int_in_range(
+                os.getenv(
+                    "CHATBOT_MAINTENANCE_MINUTE"
+                ),
+                default=0,
+                variable_name=(
+                    "CHATBOT_MAINTENANCE_MINUTE"
+                ),
+                minimum=0,
+                maximum=59,
+            )
+        ),
+        chatbot_maintenance_batch_size=(
+            _as_positive_int(
+                os.getenv(
+                    "CHATBOT_MAINTENANCE_BATCH_SIZE"
+                ),
+                default=500,
+                variable_name=(
+                    "CHATBOT_MAINTENANCE_BATCH_SIZE"
+                ),
+            )
         ),
     )

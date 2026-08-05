@@ -1,47 +1,95 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.api.routes.health import router as health_router
-from app.api.routes.schedules import router as schedules_router
-from app.api.routes.chat import router as chat_router
-from app.core.config import get_settings
-
-from app.api.routes.teachers import (
-    router as teachers_router,
+from fastapi.middleware.cors import (
+    CORSMiddleware,
 )
 
+from app.api.routes.chat import (
+    router as chat_router,
+)
 from app.api.routes.extracurriculars import (
     router as extracurriculars_router,
 )
-
+from app.api.routes.health import (
+    router as health_router,
+)
 from app.api.routes.permission_requests import (
     router as permission_requests_router,
 )
+from app.api.routes.schedules import (
+    router as schedules_router,
+)
+from app.api.routes.teachers import (
+    router as teachers_router,
+)
+from app.core.config import get_settings
+from app.core.scheduler import (
+    start_scheduler,
+    stop_scheduler,
+)
+
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(
+    application: FastAPI,
+) -> AsyncIterator[None]:
+    scheduler = start_scheduler(settings)
+
+    application.state.scheduler = scheduler
+
+    try:
+        yield
+    finally:
+        stop_scheduler(scheduler)
+
 
 app = FastAPI(
     title=settings.app_name,
     debug=settings.app_debug,
     version="0.1.0",
     description=(
-        "Fondasi penyempurnaan chatbot layanan akademik. "
+        "Fondasi penyempurnaan chatbot "
+        "layanan akademik. "
         "Belum dinyatakan siap produksi."
     ),
+    lifespan=lifespan,
 )
 
 app.include_router(chat_router)
 app.include_router(schedules_router)
 app.include_router(teachers_router)
-app.include_router(extracurriculars_router)
-app.include_router(permission_requests_router)
+app.include_router(
+    extracurriculars_router
+)
+app.include_router(
+    permission_requests_router
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(settings.allowed_origins),
+    allow_origins=list(
+        settings.allowed_origins
+    ),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+    ],
 )
 
 app.include_router(health_router)
@@ -51,5 +99,8 @@ app.include_router(health_router)
 def root() -> dict[str, str]:
     return {
         "application": settings.app_name,
-        "message": "API aktif. Buka /docs untuk dokumentasi.",
+        "message": (
+            "API aktif. Buka /docs "
+            "untuk dokumentasi."
+        ),
     }
