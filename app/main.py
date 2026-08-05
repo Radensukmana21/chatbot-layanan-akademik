@@ -14,6 +14,9 @@ from app.api.routes.extracurriculars import (
     router as extracurriculars_router,
 )
 
+from app.api.routes.permission_requests import (
+    router as permission_requests_router,
+)
 
 settings = get_settings()
 
@@ -31,6 +34,7 @@ app.include_router(chat_router)
 app.include_router(schedules_router)
 app.include_router(teachers_router)
 app.include_router(extracurriculars_router)
+app.include_router(permission_requests_router)
 
 app.add_middleware(
     CORSMiddleware,

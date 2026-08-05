@@ -21,6 +21,11 @@ from app.repositories.extracurricular_repository import (
     ExtracurricularRepository,
     ExtracurricularScheduleRecord,
 )
+from app.repositories.permission_request_repository import (
+    MultipleActiveClassesError,
+    PermissionRequestRepository,
+    PermissionStatusRecord,
+)
 
 __all__ = [
     "MultipleActiveAcademicYearsError",
@@ -34,4 +39,7 @@ __all__ = [
     "ExtracurricularRecord",
     "ExtracurricularRepository",
     "ExtracurricularScheduleRecord",
+    "MultipleActiveClassesError",
+    "PermissionRequestRepository",
+    "PermissionStatusRecord",
 ]
