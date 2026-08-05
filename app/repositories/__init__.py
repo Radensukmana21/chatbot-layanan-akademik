@@ -26,6 +26,10 @@ from app.repositories.permission_request_repository import (
     PermissionRequestRepository,
     PermissionStatusRecord,
 )
+from app.repositories.permission_draft_repository import (
+    DEFAULT_DRAFT_TTL_MINUTES,
+    PermissionDraftRepository,
+)
 
 __all__ = [
     "MultipleActiveAcademicYearsError",
@@ -42,4 +46,6 @@ __all__ = [
     "MultipleActiveClassesError",
     "PermissionRequestRepository",
     "PermissionStatusRecord",
+    "DEFAULT_DRAFT_TTL_MINUTES",
+    "PermissionDraftRepository",
 ]
