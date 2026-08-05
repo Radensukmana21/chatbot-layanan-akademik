@@ -18,12 +18,13 @@ from app.main import app
 from app.models import (
     AcademicYear,
     Base,
+    Extracurricular,
+    ExtracurricularSchedule,
     LessonSchedule,
+    PermissionRequest,
     SchoolClass,
     Subject,
     Teacher,
-    Extracurricular,
-    ExtracurricularSchedule,
 )
 
 
@@ -155,6 +156,26 @@ def client() -> Generator[TestClient, None, None]:
                 ),
             ),
         ])
+
+        session.add(
+            PermissionRequest(
+                tracking_code=(
+                    "IZN-A1B2C3D4E5F6"
+                ),
+                school_class_id=school_class.id,
+                class_name="7A",
+                student_name="Siswa Sintetis",
+                permission_type="sakit",
+                description=(
+                    "Data sintetis untuk pengujian."
+                ),
+                phone_number=None,
+                status="pending",
+                source_key=(
+                    "test:chat:permission:1"
+                ),
+            )
+        )
 
         session.commit()
 
@@ -761,4 +782,118 @@ def test_requests_complete_extracurricular_query(
         == "informasi_ekstrakurikuler"
     )
     assert payload["status"] == "invalid_request"
+    assert payload["data"] is None
+
+def test_checks_permission_status_from_chat(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        (
+            "Cek status surat "
+            "IZN-A1B2C3D4E5F6"
+        ),
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "cek_status_surat"
+    )
+    assert payload["intent_source"] == "rule"
+    assert payload["status"] == "answered"
+    assert payload["missing_entities"] == []
+
+    assert (
+        payload["data"]["tracking_code"]
+        == "IZN-A1B2C3D4E5F6"
+    )
+    assert payload["data"]["status"] == "pending"
+    assert (
+        payload["data"]["submitted_at"]
+        is not None
+    )
+    assert (
+        payload["data"]["reviewed_at"]
+        is None
+    )
+
+    assert "student_name" not in payload["data"]
+    assert "phone_number" not in payload["data"]
+    assert "description" not in payload["data"]
+
+
+def test_checks_permission_status_using_code_only(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "izn-a1b2c3d4e5f6",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "cek_status_surat"
+    )
+    assert payload["status"] == "answered"
+
+    assert (
+        payload["data"]["tracking_code"]
+        == "IZN-A1B2C3D4E5F6"
+    )
+
+
+def test_requests_tracking_code_from_chat(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        "Cek status surat izin",
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "cek_status_surat"
+    )
+    assert (
+        payload["status"]
+        == "invalid_request"
+    )
+    assert payload["missing_entities"] == [
+        "tracking_code"
+    ]
+    assert payload["data"] is None
+
+
+def test_returns_not_found_for_unknown_tracking_code(
+    client: TestClient,
+) -> None:
+    response = post_message(
+        client,
+        (
+            "Cek status surat "
+            "IZN-000000000000"
+        ),
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert (
+        payload["intent"]
+        == "cek_status_surat"
+    )
+    assert payload["status"] == "not_found"
     assert payload["data"] is None

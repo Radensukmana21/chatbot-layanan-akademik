@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 from uuid import UUID
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +17,7 @@ ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
     "informasi_ekstrakurikuler",
+    "cek_status_surat",
 ]
 
 
@@ -59,6 +61,19 @@ class ChatExtracurricularDataResponse(BaseModel):
     query: str | None = None
     items: list[ExtracurricularResponse]
 
+class ChatPermissionStatusDataResponse(
+    BaseModel
+):
+    tracking_code: str
+
+    status: Literal[
+        "pending",
+        "approved",
+        "rejected",
+    ]
+
+    submitted_at: datetime
+    reviewed_at: datetime | None
 
 class ChatMessageResponse(BaseModel):
     conversation_id: UUID
@@ -83,5 +98,6 @@ class ChatMessageResponse(BaseModel):
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
         | ChatExtracurricularDataResponse
+        | ChatPermissionStatusDataResponse
         | None
     ) = None

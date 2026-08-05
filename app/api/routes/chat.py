@@ -33,11 +33,15 @@ from app.repositories.teacher_repository import (
 from app.repositories.extracurricular_repository import (
     ExtracurricularRepository,
 )
+from app.repositories.permission_request_repository import (
+    PermissionRequestRepository,
+)
 from app.schemas.chat import (
     ChatEntitiesResponse,
     ChatExtracurricularDataResponse,
     ChatMessageRequest,
     ChatMessageResponse,
+    ChatPermissionStatusDataResponse,
     ChatScheduleDataResponse,
     ChatTeacherDataResponse,
 )
@@ -127,6 +131,11 @@ def create_chat_message(
                 academic_session
             )
         ),
+        permission_request_repository=(
+            PermissionRequestRepository(
+                academic_session
+            )
+        ),
         context=request_context,
     )
 
@@ -156,6 +165,7 @@ def create_chat_message(
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
         | ChatExtracurricularDataResponse
+        | ChatPermissionStatusDataResponse
         | None
     ) = None
 
@@ -179,34 +189,29 @@ def create_chat_message(
         and result.teacher_search_mode is not None
         and result.teacher_query is not None
     ):
-        teacher_items = [
-            TeacherInformationResponse(
-                id=item.id,
-                name=item.name,
-                subjects=list(item.subjects),
-                classes=list(item.classes),
-            )
-            for item in result.teacher_items
-        ]
-
         data = ChatTeacherDataResponse(
             academic_year=result.academic_year,
             search_mode=result.teacher_search_mode,
             query=result.teacher_query,
-            items=teacher_items,
+            items=[
+                TeacherInformationResponse(
+                    id=item.id,
+                    name=item.name,
+                    subjects=list(item.subjects),
+                    classes=list(item.classes),
+                )
+                for item in result.teacher_items
+            ],
         )
-    
+
     elif (
         result.intent == "informasi_ekstrakurikuler"
         and result.status == "answered"
-        and result.extracurricular_search_mode
-        is not None
+        and result.extracurricular_search_mode is not None
         and result.extracurricular_focus is not None
     ):
         data = ChatExtracurricularDataResponse(
-            search_mode=(
-                result.extracurricular_search_mode
-            ),
+            search_mode=result.extracurricular_search_mode,
             focus=result.extracurricular_focus,
             query=result.extracurricular_query,
             items=[
@@ -219,20 +224,28 @@ def create_chat_message(
                     schedules=[
                         ExtracurricularScheduleResponse(
                             day=schedule.day,
-                            start_time=(
-                                schedule.start_time
-                            ),
-                            end_time=(
-                                schedule.end_time
-                            ),
+                            start_time=schedule.start_time,
+                            end_time=schedule.end_time,
                         )
                         for schedule in item.schedules
                     ],
                 )
-                for item in (
-                    result.extracurricular_items
-                )
+                for item in result.extracurricular_items
             ],
+        )
+
+    elif (
+        result.intent == "cek_status_surat"
+        and result.status == "answered"
+        and result.permission_status_item is not None
+    ):
+        status_item = result.permission_status_item
+
+        data = ChatPermissionStatusDataResponse(
+            tracking_code=status_item.tracking_code,
+            status=status_item.status,
+            submitted_at=status_item.submitted_at,
+            reviewed_at=status_item.reviewed_at,
         )
 
     return ChatMessageResponse(
@@ -244,7 +257,9 @@ def create_chat_message(
             class_name=result.class_name,
             day=result.day,
         ),
-        missing_entities=list(result.missing_entities),
+        missing_entities=list(
+            result.missing_entities
+        ),
         message=result.message,
         data=data,
     )

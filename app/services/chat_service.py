@@ -30,6 +30,10 @@ from app.repositories.extracurricular_repository import (
     ExtracurricularRecord,
     ExtracurricularRepository,
 )
+from app.repositories.permission_request_repository import (
+    PermissionRequestRepository,
+    PermissionStatusRecord,
+)
 from app.services.extracurricular_chat import (
     ExtracurricularFocus,
     ExtracurricularSearchMode,
@@ -40,6 +44,13 @@ from app.services.extracurricular_lookup import (
     list_extracurricular_information,
     search_extracurricular_information,
 )
+from app.services.permission_chat import (
+    build_permission_status_answer,
+    extract_permission_chat_query,
+)
+from app.services.permission_request_service import (
+    lookup_permission_status,
+)
 from app.services.class_validator import validate_class_format
 from app.services.schedule_lookup import lookup_class_schedule
 
@@ -48,6 +59,7 @@ ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
     "informasi_ekstrakurikuler",
+    "cek_status_surat",
 ]
 
 ChatStatus = Literal[
@@ -103,6 +115,10 @@ class ChatResult:
         ...,
     ] = ()
 
+    permission_status_item: (
+        PermissionStatusRecord | None
+    ) = None
+
 def detect_rule_intent(
     message: str | None,
 ) -> ChatIntent | None:
@@ -110,6 +126,17 @@ def detect_rule_intent(
 
     if not normalized:
         return None
+
+    permission_query = (
+        extract_permission_chat_query(message)
+    )
+
+    if (
+        permission_query.is_permission_intent
+        and permission_query.intent
+        == "cek_status_surat"
+    ):
+        return "cek_status_surat"
 
     extracurricular_query = (
         extract_extracurricular_chat_query(message)
@@ -123,17 +150,20 @@ def detect_rule_intent(
     if "jadwal" in tokens:
         return "jadwal_pelajaran"
 
-    if re.search(r"\bbelajar\s+apa\b", normalized):
+    if re.search(
+        r"\bbelajar\s+apa\b",
+        normalized,
+    ):
         return "jadwal_pelajaran"
 
-    teacher_query = extract_teacher_chat_query(message)
+    teacher_query = extract_teacher_chat_query(
+        message
+    )
 
     if teacher_query.is_teacher_intent:
         return "informasi_guru"
 
     return None
-
-
 
 def extract_group_reply(
     message: str | None,
@@ -290,6 +320,7 @@ def handle_chat_message(
     schedule_repository: LessonScheduleRepository,
     teacher_repository: TeacherRepository,
     extracurricular_repository: ExtracurricularRepository,
+    permission_request_repository: PermissionRequestRepository,
     context: ChatContext | None = None,
     today: date | None = None,
 ) -> ChatResult:
@@ -342,6 +373,100 @@ def handle_chat_message(
                 "mengecek jadwal pelajaran."
             ),
             context=empty_context,
+        )
+
+    if intent == "cek_status_surat":
+        permission_query = (
+            extract_permission_chat_query(
+                message
+            )
+        )
+
+        closed_context = ChatContext(
+            intent="cek_status_surat",
+            is_active=False,
+        )
+
+        if permission_query.tracking_code is None:
+            return ChatResult(
+                intent="cek_status_surat",
+                intent_source="rule",
+                status="invalid_request",
+                class_name=None,
+                day=None,
+                missing_entities=(
+                    "tracking_code",
+                ),
+                academic_year=None,
+                items=(),
+                message=(
+                    "Sertakan kode pelacakan surat. "
+                    "Contohnya: "
+                    "'Cek status surat "
+                    "IZN-A1B2C3D4E5F6'."
+                ),
+                context=closed_context,
+            )
+
+        lookup_result = lookup_permission_status(
+            tracking_code=(
+                permission_query.tracking_code
+            ),
+            repository=(
+                permission_request_repository
+            ),
+        )
+
+        if lookup_result.status == "invalid_code":
+            return ChatResult(
+                intent="cek_status_surat",
+                intent_source="rule",
+                status="invalid_request",
+                class_name=None,
+                day=None,
+                missing_entities=(
+                    "tracking_code",
+                ),
+                academic_year=None,
+                items=(),
+                message=lookup_result.message,
+                context=closed_context,
+            )
+
+        if lookup_result.status == "not_found":
+            return ChatResult(
+                intent="cek_status_surat",
+                intent_source="rule",
+                status="not_found",
+                class_name=None,
+                day=None,
+                missing_entities=(),
+                academic_year=None,
+                items=(),
+                message=lookup_result.message,
+                context=closed_context,
+            )
+
+        assert lookup_result.item is not None
+
+        answer = build_permission_status_answer(
+            item=lookup_result.item
+        )
+
+        return ChatResult(
+            intent="cek_status_surat",
+            intent_source="rule",
+            status="answered",
+            class_name=None,
+            day=None,
+            missing_entities=(),
+            academic_year=None,
+            items=(),
+            message=answer,
+            context=closed_context,
+            permission_status_item=(
+                lookup_result.item
+            ),
         )
 
     if intent == "informasi_ekstrakurikuler":
