@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -12,12 +12,24 @@ DEFAULT_DRAFT_TTL_MINUTES = 30
 
 
 def utc_now_naive() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
 
 
 class PermissionDraftRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_conversation_id(
+        self,
+        *,
+        conversation_id: str,
+    ) -> PermissionDraft | None:
+        return self._session.get(
+            PermissionDraft,
+            conversation_id,
+        )
 
     def start(
         self,

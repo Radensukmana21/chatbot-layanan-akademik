@@ -81,6 +81,20 @@ class PermissionRequestRepository:
             is not None
         )
 
+    def get_by_source_key(
+        self,
+        *,
+        source_key: str,
+    ) -> PermissionRequest | None:
+        statement = select(
+            PermissionRequest
+        ).where(
+            PermissionRequest.source_key
+            == source_key
+        )
+
+        return self._session.scalar(statement)
+
     def create(
         self,
         *,
@@ -91,6 +105,7 @@ class PermissionRequestRepository:
         permission_type: str,
         description: str,
         phone_number: str | None,
+        source_key: str | None = None,
     ) -> PermissionRequest:
         request = PermissionRequest(
             tracking_code=tracking_code,
@@ -101,6 +116,7 @@ class PermissionRequestRepository:
             description=description,
             phone_number=phone_number,
             status="pending",
+            source_key=source_key,
         )
 
         self._session.add(request)

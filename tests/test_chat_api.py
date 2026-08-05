@@ -5,11 +5,14 @@ from datetime import date, time
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.chatbot_models import ChatbotBase
+from app.chatbot_models import (
+    ChatbotBase,
+    ConversationMessage,
+)
 from app.core.dependencies import (
     get_academic_session,
     get_chatbot_session,
@@ -897,3 +900,149 @@ def test_returns_not_found_for_unknown_tracking_code(
     )
     assert payload["status"] == "not_found"
     assert payload["data"] is None
+
+def test_submits_permission_request_from_chat(
+    client: TestClient,
+) -> None:
+    first = post_message(
+        client,
+        "Saya ingin mengajukan surat izin",
+    ).json()
+
+    conversation_id = first["conversation_id"]
+
+    assert (
+        first["intent"]
+        == "ajukan_surat_izin"
+    )
+    assert (
+        first["status"]
+        == "needs_clarification"
+    )
+    assert first["missing_entities"] == [
+        "student_name"
+    ]
+    assert first["data"] is None
+
+    steps = [
+        (
+            "Siswa Integrasi",
+            "class_name",
+        ),
+        (
+            "7A",
+            "permission_type",
+        ),
+        (
+            "Sakit",
+            "description",
+        ),
+        (
+            "Tidak dapat mengikuti pelajaran.",
+            "phone_number",
+        ),
+        (
+            "lewati",
+            "confirmation",
+        ),
+    ]
+
+    for message, missing_entity in steps:
+        payload = post_message(
+            client,
+            message,
+            conversation_id=conversation_id,
+        ).json()
+
+        assert (
+            payload["conversation_id"]
+            == conversation_id
+        )
+        assert (
+            payload["intent"]
+            == "ajukan_surat_izin"
+        )
+        assert payload["missing_entities"] == [
+            missing_entity
+        ]
+
+    final_response = post_message(
+        client,
+        "YA",
+        conversation_id=conversation_id,
+    )
+
+    assert final_response.status_code == 200
+
+    final_payload = final_response.json()
+
+    assert (
+        final_payload["intent"]
+        == "ajukan_surat_izin"
+    )
+    assert final_payload["status"] == "answered"
+    assert final_payload["missing_entities"] == []
+
+    assert (
+        final_payload["data"]["tracking_code"]
+        .startswith("IZN-")
+    )
+    assert (
+        final_payload["data"]["status"]
+        == "pending"
+    )
+    assert (
+        final_payload["data"]["submitted_at"]
+        is not None
+    )
+
+    tracking_code = (
+        final_payload["data"]["tracking_code"]
+    )
+
+    status_response = client.get(
+        "/api/v1/permission-requests/"
+        f"{tracking_code}/status"
+    )
+
+    assert status_response.status_code == 200
+    assert (
+        status_response.json()["status"]
+        == "pending"
+    )
+    
+def test_cancels_permission_request_chat(
+    client: TestClient,
+) -> None:
+    first_payload = post_message(
+        client,
+        "Ajukan surat izin",
+    ).json()
+
+    conversation_id = (
+        first_payload["conversation_id"]
+    )
+
+    cancel_payload = post_message(
+        client,
+        "batal",
+        conversation_id=conversation_id,
+    ).json()
+
+    assert (
+        cancel_payload["intent"]
+        == "ajukan_surat_izin"
+    )
+    assert cancel_payload["status"] == "answered"
+    assert cancel_payload["data"] is None
+    assert "dibatalkan" in (
+        cancel_payload["message"].lower()
+    )
+
+    next_payload = post_message(
+        client,
+        "Siswa Integrasi",
+        conversation_id=conversation_id,
+    ).json()
+
+    assert next_payload["status"] == "unsupported"

@@ -36,12 +36,16 @@ from app.repositories.extracurricular_repository import (
 from app.repositories.permission_request_repository import (
     PermissionRequestRepository,
 )
+from app.repositories.permission_draft_repository import (
+    PermissionDraftRepository,
+)
 from app.schemas.chat import (
     ChatEntitiesResponse,
     ChatExtracurricularDataResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ChatPermissionStatusDataResponse,
+    ChatPermissionSubmissionDataResponse,
     ChatScheduleDataResponse,
     ChatTeacherDataResponse,
 )
@@ -51,7 +55,13 @@ from app.schemas.extracurricular import (
     ExtracurricularResponse,
     ExtracurricularScheduleResponse,
 )
-from app.services.chat_service import handle_chat_message
+from app.services.chat_service import (
+    ChatContext,
+    handle_chat_message,
+)
+from app.services.permission_chat_flow import (
+    handle_permission_submission_chat,
+)
 
 
 router = APIRouter(
@@ -81,6 +91,15 @@ def create_chat_message(
     message_repository = ConversationMessageRepository(
         chatbot_session
     )
+    permission_repository = (
+        PermissionRequestRepository(
+            academic_session
+        )
+    )
+    draft_repository = PermissionDraftRepository(
+        chatbot_session
+    )
+
 
     if payload.conversation_id is None:
         conversation = conversation_repository.create()
@@ -102,62 +121,138 @@ def create_chat_message(
                 },
             )
 
-    request_context = conversation_repository.load_context(
-        conversation
+    permission_flow = (
+        handle_permission_submission_chat(
+            conversation_id=conversation.id,
+            message=payload.message,
+            draft_repository=draft_repository,
+            permission_repository=(
+                permission_repository
+            ),
+        )
     )
 
+    regular_result = None
+
+    if permission_flow is not None:
+        response_intent = "ajukan_surat_izin"
+        response_intent_source = "rule"
+        response_status = permission_flow.status
+        response_message = permission_flow.message
+        response_class_name = None
+        response_day = None
+        response_missing_entities = list(
+            permission_flow.missing_entities
+        )
+
+        response_context = ChatContext(
+            intent="ajukan_surat_izin",
+            is_active=False,
+        )
+
+        storage_policy = "metadata_only"
+    else:
+        request_context = (
+            conversation_repository.load_context(
+                conversation
+            )
+        )
+
+        regular_result = handle_chat_message(
+            message=payload.message,
+            class_repository=(
+                SchoolClassRepository(
+                    academic_session
+                )
+            ),
+            schedule_repository=(
+                LessonScheduleRepository(
+                    academic_session
+                )
+            ),
+            teacher_repository=(
+                TeacherRepository(
+                    academic_session
+                )
+            ),
+            extracurricular_repository=(
+                ExtracurricularRepository(
+                    academic_session
+                )
+            ),
+            permission_request_repository=(
+                permission_repository
+            ),
+            context=request_context,
+        )
+
+        response_intent = regular_result.intent
+        response_intent_source = (
+            regular_result.intent_source
+        )
+        response_status = regular_result.status
+        response_message = regular_result.message
+        response_class_name = (
+            regular_result.class_name
+        )
+        response_day = regular_result.day
+        response_missing_entities = list(
+            regular_result.missing_entities
+        )
+        response_context = (
+            regular_result.context
+        )
+
+        storage_policy = "full"
+
     settings = get_settings()
-    retention_days = settings.chat_message_retention_days
+    retention_days = (
+        settings.chat_message_retention_days
+    )
 
     message_repository.add_user_message(
         conversation_id=conversation.id,
         content=payload.message,
+        storage_policy=storage_policy,
         retention_days=retention_days,
-    )
-
-    result = handle_chat_message(
-        message=payload.message,
-        class_repository=SchoolClassRepository(
-            academic_session
-        ),
-        schedule_repository=LessonScheduleRepository(
-            academic_session
-        ),
-        teacher_repository=TeacherRepository(
-            academic_session
-        ),
-        extracurricular_repository=(
-            ExtracurricularRepository(
-                academic_session
-            )
-        ),
-        permission_request_repository=(
-            PermissionRequestRepository(
-                academic_session
-            )
-        ),
-        context=request_context,
     )
 
     conversation_repository.save_context(
         conversation,
-        result.context,
+        response_context,
     )
 
     message_repository.add_assistant_message(
         conversation_id=conversation.id,
-        content=result.message,
-        intent=result.intent,
-        intent_source=result.intent_source,
-        response_status=result.status,
-        class_name=result.class_name,
-        day=result.day,
+        content=response_message,
+        intent=response_intent,
+        intent_source=(
+            response_intent_source
+        ),
+        response_status=response_status,
+        class_name=response_class_name,
+        day=response_day,
+        storage_policy=storage_policy,
         retention_days=retention_days,
     )
 
     try:
+        # Commit academic lebih dahulu karena hasil akhir
+        # pengajuan berada pada database akademik.
+        if (
+            permission_flow is not None
+            and permission_flow.request
+            is not None
+        ):
+            academic_session.commit()
+            academic_session.refresh(
+                permission_flow.request
+            )
+
         chatbot_session.commit()
+
     except Exception:
+        academic_session.rollback()
         chatbot_session.rollback()
         raise
 
@@ -165,101 +260,188 @@ def create_chat_message(
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
         | ChatExtracurricularDataResponse
+        | ChatPermissionSubmissionDataResponse
         | ChatPermissionStatusDataResponse
         | None
     ) = None
 
-    if (
-        result.intent == "jadwal_pelajaran"
-        and result.status == "answered"
-        and result.academic_year is not None
-    ):
-        data = ChatScheduleDataResponse(
-            academic_year=result.academic_year,
-            items=[
-                ScheduleItemResponse.model_validate(item)
-                for item in result.items
-            ],
-        )
+    if permission_flow is not None:
+        if permission_flow.request is not None:
+            permission_request = (
+                permission_flow.request
+            )
 
-    elif (
-        result.intent == "informasi_guru"
-        and result.status == "answered"
-        and result.academic_year is not None
-        and result.teacher_search_mode is not None
-        and result.teacher_query is not None
-    ):
-        data = ChatTeacherDataResponse(
-            academic_year=result.academic_year,
-            search_mode=result.teacher_search_mode,
-            query=result.teacher_query,
-            items=[
-                TeacherInformationResponse(
-                    id=item.id,
-                    name=item.name,
-                    subjects=list(item.subjects),
-                    classes=list(item.classes),
+            data = (
+                ChatPermissionSubmissionDataResponse(
+                    tracking_code=(
+                        permission_request.tracking_code
+                    ),
+                    status="pending",
+                    submitted_at=(
+                        permission_request.submitted_at
+                    ),
                 )
-                for item in result.teacher_items
-            ],
-        )
+            )
 
-    elif (
-        result.intent == "informasi_ekstrakurikuler"
-        and result.status == "answered"
-        and result.extracurricular_search_mode is not None
-        and result.extracurricular_focus is not None
-    ):
-        data = ChatExtracurricularDataResponse(
-            search_mode=result.extracurricular_search_mode,
-            focus=result.extracurricular_focus,
-            query=result.extracurricular_query,
-            items=[
-                ExtracurricularResponse(
-                    id=item.id,
-                    name=item.name,
-                    advisor_name=item.advisor_name,
-                    location=item.location,
-                    description=item.description,
-                    schedules=[
-                        ExtracurricularScheduleResponse(
-                            day=schedule.day,
-                            start_time=schedule.start_time,
-                            end_time=schedule.end_time,
-                        )
-                        for schedule in item.schedules
-                    ],
+    elif regular_result is not None:
+        if (
+            regular_result.intent
+            == "jadwal_pelajaran"
+            and regular_result.status == "answered"
+            and regular_result.academic_year
+            is not None
+        ):
+            data = ChatScheduleDataResponse(
+                academic_year=(
+                    regular_result.academic_year
+                ),
+                items=[
+                    ScheduleItemResponse.model_validate(
+                        item
+                    )
+                    for item in regular_result.items
+                ],
+            )
+
+        elif (
+            regular_result.intent
+            == "informasi_guru"
+            and regular_result.status == "answered"
+            and regular_result.academic_year
+            is not None
+            and regular_result.teacher_search_mode
+            is not None
+            and regular_result.teacher_query
+            is not None
+        ):
+            data = ChatTeacherDataResponse(
+                academic_year=(
+                    regular_result.academic_year
+                ),
+                search_mode=(
+                    regular_result.teacher_search_mode
+                ),
+                query=regular_result.teacher_query,
+                items=[
+                    TeacherInformationResponse(
+                        id=item.id,
+                        name=item.name,
+                        subjects=list(
+                            item.subjects
+                        ),
+                        classes=list(
+                            item.classes
+                        ),
+                    )
+                    for item in (
+                        regular_result.teacher_items
+                    )
+                ],
+            )
+
+        elif (
+            regular_result.intent
+            == "informasi_ekstrakurikuler"
+            and regular_result.status == "answered"
+            and (
+                regular_result
+                .extracurricular_search_mode
+                is not None
+            )
+            and (
+                regular_result
+                .extracurricular_focus
+                is not None
+            )
+        ):
+            data = ChatExtracurricularDataResponse(
+                search_mode=(
+                    regular_result
+                    .extracurricular_search_mode
+                ),
+                focus=(
+                    regular_result
+                    .extracurricular_focus
+                ),
+                query=(
+                    regular_result
+                    .extracurricular_query
+                ),
+                items=[
+                    ExtracurricularResponse(
+                        id=item.id,
+                        name=item.name,
+                        advisor_name=(
+                            item.advisor_name
+                        ),
+                        location=item.location,
+                        description=(
+                            item.description
+                        ),
+                        schedules=[
+                            ExtracurricularScheduleResponse(
+                                day=schedule.day,
+                                start_time=(
+                                    schedule.start_time
+                                ),
+                                end_time=(
+                                    schedule.end_time
+                                ),
+                            )
+                            for schedule in (
+                                item.schedules
+                            )
+                        ],
+                    )
+                    for item in (
+                        regular_result
+                        .extracurricular_items
+                    )
+                ],
+            )
+
+        elif (
+            regular_result.intent
+            == "cek_status_surat"
+            and regular_result.status == "answered"
+            and (
+                regular_result
+                .permission_status_item
+                is not None
+            )
+        ):
+            status_item = (
+                regular_result
+                .permission_status_item
+            )
+
+            data = (
+                ChatPermissionStatusDataResponse(
+                    tracking_code=(
+                        status_item.tracking_code
+                    ),
+                    status=status_item.status,
+                    submitted_at=(
+                        status_item.submitted_at
+                    ),
+                    reviewed_at=(
+                        status_item.reviewed_at
+                    ),
                 )
-                for item in result.extracurricular_items
-            ],
-        )
-
-    elif (
-        result.intent == "cek_status_surat"
-        and result.status == "answered"
-        and result.permission_status_item is not None
-    ):
-        status_item = result.permission_status_item
-
-        data = ChatPermissionStatusDataResponse(
-            tracking_code=status_item.tracking_code,
-            status=status_item.status,
-            submitted_at=status_item.submitted_at,
-            reviewed_at=status_item.reviewed_at,
-        )
+            )
 
     return ChatMessageResponse(
         conversation_id=conversation.id,
-        intent=result.intent,
-        intent_source=result.intent_source,
-        status=result.status,
+        intent=response_intent,
+        intent_source=response_intent_source,
+        status=response_status,
         entities=ChatEntitiesResponse(
-            class_name=result.class_name,
-            day=result.day,
+            class_name=response_class_name,
+            day=response_day,
         ),
-        missing_entities=list(
-            result.missing_entities
+        missing_entities=(
+            response_missing_entities
         ),
-        message=result.message,
+        message=response_message,
         data=data,
     )

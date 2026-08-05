@@ -17,6 +17,7 @@ ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
     "informasi_ekstrakurikuler",
+    "ajukan_surat_izin",
     "cek_status_surat",
 ]
 
@@ -75,6 +76,13 @@ class ChatPermissionStatusDataResponse(
     submitted_at: datetime
     reviewed_at: datetime | None
 
+class ChatPermissionSubmissionDataResponse(
+    BaseModel
+):
+    tracking_code: str
+    status: Literal["pending"]
+    submitted_at: datetime
+
 class ChatMessageResponse(BaseModel):
     conversation_id: UUID
 
@@ -98,6 +106,7 @@ class ChatMessageResponse(BaseModel):
         ChatScheduleDataResponse
         | ChatTeacherDataResponse
         | ChatExtracurricularDataResponse
+        | ChatPermissionSubmissionDataResponse
         | ChatPermissionStatusDataResponse
         | None
     ) = None

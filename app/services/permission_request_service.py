@@ -141,6 +141,7 @@ def submit_permission_request(
     description: str,
     phone_number: str | None,
     repository: PermissionRequestRepository,
+    source_key: str | None = None,
 ) -> PermissionSubmissionResult:
     cleaned_name = " ".join(
         student_name.split()
@@ -246,6 +247,25 @@ def submit_permission_request(
             ),
         )
 
+    if source_key is not None:
+        existing_request = (
+            repository.get_by_source_key(
+                source_key=source_key
+            )
+        )
+
+        if existing_request is not None:
+            return PermissionSubmissionResult(
+                status="created",
+                request=existing_request,
+                message=(
+                    "Pengajuan surat izin sebelumnya "
+                    "sudah berhasil dibuat. "
+                    "Gunakan kode pelacakan yang sama "
+                    "untuk memeriksa status."
+                ),
+            )
+
     tracking_code = generate_tracking_code(
         repository=repository
     )
@@ -258,6 +278,7 @@ def submit_permission_request(
         permission_type=canonical_type,
         description=cleaned_description,
         phone_number=normalized_phone,
+        source_key=source_key,
     )
 
     return PermissionSubmissionResult(

@@ -59,6 +59,7 @@ ChatIntent = Literal[
     "jadwal_pelajaran",
     "informasi_guru",
     "informasi_ekstrakurikuler",
+    "ajukan_surat_izin",
     "cek_status_surat",
 ]
 
